@@ -1,5 +1,5 @@
 use super::property::PyEquationsOfState;
-use super::{OrganicRankineCycle, Process, ProcessModel};
+use super::{OrganicRankineCycle, Process};
 use crate::property::EquationsOfState;
 use feos_core::parameter::ParameterError;
 use pyo3::prelude::*;

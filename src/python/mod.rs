@@ -24,35 +24,30 @@ pub struct PyOptimizationProblem(OptimizationProblem);
 #[pymethods]
 impl PyOptimizationProblem {
     #[new]
-    fn new(
-        molecule: &PyAny,
-        property_model: PyPropertyModel,
-        process: PyOrganicRankineCycle,
-    ) -> PyResult<Self> {
-        if let Ok(molecule) = molecule.extract::<PySuperMolecule>() {
-            return Ok(Self(OptimizationProblem::new(
-                MolecularRepresentation::SuperMolecule(molecule.0),
-                property_model.0,
-                process.0,
-            )));
-        }
-        if let Ok(molecule) = molecule.extract::<PyHomoGc>() {
-            return Ok(Self(OptimizationProblem::new(
-                MolecularRepresentation::HomoGc(molecule.0),
-                property_model.0,
-                process.0,
-            )));
-        }
-        if let Ok(molecule) = molecule.extract::<PyFixedMolecule>() {
-            return Ok(Self(OptimizationProblem::new(
-                MolecularRepresentation::FixedMolecule(molecule.0),
-                property_model.0,
-                process.0,
-            )));
-        }
-        Err(PyValueError::new_err(
-            "Parameter `molecule` has an invalid type.",
-        ))
+    fn new(molecule: &PyAny, property_model: PyPropertyModel, process: &PyAny) -> PyResult<Self> {
+        let molecule = if let Ok(molecule) = molecule.extract::<PySuperMolecule>() {
+            MolecularRepresentation::SuperMolecule(molecule.0)
+        } else if let Ok(molecule) = molecule.extract::<PyHomoGc>() {
+            MolecularRepresentation::HomoGc(molecule.0)
+        } else if let Ok(molecule) = molecule.extract::<PyFixedMolecule>() {
+            MolecularRepresentation::FixedMolecule(molecule.0)
+        } else {
+            return Err(PyValueError::new_err(
+                "Parameter `molecule` has an invalid type.",
+            ));
+        };
+        let process = if let Ok(process) = process.extract::<PyOrganicRankineCycle>() {
+            ProcessModel::OrganicRankineCycle(process.0)
+        } else {
+            return Err(PyValueError::new_err(
+                "Parameter `process` has an invalid type.",
+            ));
+        };
+        Ok(Self(OptimizationProblem::new(
+            molecule,
+            property_model.0,
+            process,
+        )))
     }
 
     fn add_solution(&mut self, solution: PyOptimizationResult) {
@@ -78,8 +73,12 @@ impl PyOptimizationProblem {
     }
 
     #[getter]
-    fn get_process(&self) -> PyOrganicRankineCycle {
-        PyOrganicRankineCycle(self.0.process.clone())
+    fn get_process(&self, py: Python) -> PyObject {
+        match &self.0.process {
+            ProcessModel::OrganicRankineCycle(process) => {
+                PyOrganicRankineCycle(process.clone()).into_py(py)
+            }
+        }
     }
 
     #[getter]

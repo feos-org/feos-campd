@@ -1,6 +1,7 @@
 use feos_core::{EosResult, EquationOfState, MolarWeight, StateBuilder};
 use petgraph::prelude::*;
 use quantity::si::{SIArray1, SINumber, SIUnit, WATT};
+use serde::{Deserialize, Serialize};
 use std::ops::Index;
 use std::rc::Rc;
 
@@ -11,14 +12,33 @@ pub use equipment::Equipment;
 pub use orc::OrganicRankineCycle;
 pub use process_state::ProcessState;
 
-pub trait ProcessModel {
-    fn variables(&self) -> Vec<[Option<f64>; 2]>;
-    fn constraints(&self) -> Vec<[Option<f64>; 3]>;
-    fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ProcessModel {
+    OrganicRankineCycle(OrganicRankineCycle),
+}
+
+impl ProcessModel {
+    pub fn variables(&self) -> Vec<[Option<f64>; 2]> {
+        match self {
+            Self::OrganicRankineCycle(process) => process.variables(),
+        }
+    }
+
+    pub fn constraints(&self) -> Vec<[Option<f64>; 3]> {
+        match self {
+            Self::OrganicRankineCycle(process) => process.constraints(),
+        }
+    }
+
+    pub fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
         &self,
         eos: &Rc<E>,
         x: &[f64],
-    ) -> EosResult<(Process<E>, f64, Vec<f64>)>;
+    ) -> EosResult<(Process<E>, f64, Vec<f64>)> {
+        match self {
+            Self::OrganicRankineCycle(process) => process.solve(eos, x),
+        }
+    }
 }
 
 pub type StatePoint = NodeIndex;
@@ -204,13 +224,13 @@ impl ProcessStep {
                 let pressure = states[0].state.pressure();
                 let mut state_vec = vec![states[0].state.clone()];
                 state_vec.extend((1..49).map(|i| {
-                    ProcessState::SinglePhase(
+                    ProcessState::SinglePhase(Box::new(
                         StateBuilder::new(states[0].state.eos())
                             .temperature(temperature.get(i))
                             .pressure(pressure)
                             .build()
                             .unwrap(),
-                    )
+                    ))
                 }));
                 state_vec.push(states[1].state.clone());
                 let entropy =

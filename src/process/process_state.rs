@@ -5,8 +5,8 @@ use quantity::si::{SINumber, SIUnit};
 use std::rc::Rc;
 
 pub enum ProcessState<E> {
-    SinglePhase(State<SIUnit, E>),
-    TwoPhase(PhaseEquilibrium<SIUnit, E, 2>, f64),
+    SinglePhase(Box<State<SIUnit, E>>),
+    TwoPhase(Rc<PhaseEquilibrium<SIUnit, E, 2>>, f64),
 }
 
 impl<E> Clone for ProcessState<E> {
@@ -23,7 +23,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         eos: &Rc<E>,
         enthalpy: SINumber,
         pressure: SINumber,
-        vle: &PhaseEquilibrium<SIUnit, E, 2>,
+        vle: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
         initial_temperature: SINumber,
     ) -> EosResult<Self> {
         let hv = vle.vapor().molar_enthalpy(Contributions::Total);
@@ -37,7 +37,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
                 .enthalpy(enthalpy)
                 .initial_temperature(initial_temperature)
                 .build()?;
-            Self::SinglePhase(state)
+            Self::SinglePhase(Box::new(state))
         })
     }
 
@@ -45,7 +45,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         eos: &Rc<E>,
         entropy: SINumber,
         pressure: SINumber,
-        vle: &PhaseEquilibrium<SIUnit, E, 2>,
+        vle: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
         initial_temperature: SINumber,
     ) -> EosResult<Self> {
         let sv = vle.vapor().molar_entropy(Contributions::Total);
@@ -58,7 +58,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
                 .entropy(entropy)
                 .initial_temperature(initial_temperature)
                 .build()?;
-            Self::SinglePhase(state)
+            Self::SinglePhase(Box::new(state))
         })
     }
 

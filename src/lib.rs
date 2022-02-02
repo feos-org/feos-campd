@@ -24,7 +24,7 @@ mod python;
 pub struct OptimizationProblem {
     pub molecule: MolecularRepresentation,
     pub property_model: PropertyModel,
-    pub process: OrganicRankineCycle,
+    pub process: ProcessModel,
     pub solutions: Vec<OptimizationResult>,
 }
 
@@ -32,7 +32,7 @@ impl OptimizationProblem {
     pub fn new(
         molecule: MolecularRepresentation,
         property_model: PropertyModel,
-        process: OrganicRankineCycle,
+        process: ProcessModel,
     ) -> Self {
         Self {
             molecule,

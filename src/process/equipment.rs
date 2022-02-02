@@ -3,6 +3,7 @@ use feos_core::{
     Contributions, EosResult, EquationOfState, MolarWeight, PhaseEquilibrium, StateBuilder,
 };
 use quantity::si::*;
+use std::rc::Rc;
 
 pub struct Equipment {
     pub states: Vec<StatePoint>,
@@ -17,7 +18,7 @@ impl Equipment {
         process: &mut Process<E>,
         mut feed: StatePoint,
         mass_flow_rate: SINumber,
-        vle: &PhaseEquilibrium<SIUnit, E, 2>,
+        vle: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
     ) -> EosResult<Self> {
         let mut states = Vec::new();
         if !process[feed].is_two_phase() {
@@ -43,7 +44,7 @@ impl Equipment {
         process: &mut Process<E>,
         feed: StatePoint,
         mass_flow_rate: SINumber,
-        vle: &PhaseEquilibrium<SIUnit, E, 2>,
+        vle: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
         superheating: Option<SINumber>,
     ) -> EosResult<Self> {
         let (liquid, _) = process.add_step(
@@ -67,7 +68,7 @@ impl Equipment {
                 .build()?;
             let (superheated, _) = process.add_step(
                 vapor,
-                ProcessState::SinglePhase(state_out),
+                ProcessState::SinglePhase(Box::new(state_out)),
                 ProcessStep::isobaric(mass_flow_rate),
             );
             states.push(superheated);
@@ -79,7 +80,7 @@ impl Equipment {
     pub fn pump<E: EquationOfState + MolarWeight<SIUnit>>(
         process: &mut Process<E>,
         feed: StatePoint,
-        vle_out: &PhaseEquilibrium<SIUnit, E, 2>,
+        vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
         mass_flow_rate: SINumber,
         efficiency: f64,
     ) -> EosResult<Self> {
@@ -96,7 +97,7 @@ impl Equipment {
     pub fn turbine<E: EquationOfState + MolarWeight<SIUnit>>(
         process: &mut Process<E>,
         feed: StatePoint,
-        vle_out: &PhaseEquilibrium<SIUnit, E, 2>,
+        vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
         mass_flow_rate: SINumber,
         efficiency: f64,
     ) -> EosResult<Self> {
@@ -113,7 +114,7 @@ impl Equipment {
     fn pressure_changer<E: EquationOfState + MolarWeight<SIUnit>>(
         process: &mut Process<E>,
         feed: StatePoint,
-        vle_out: &PhaseEquilibrium<SIUnit, E, 2>,
+        vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
         mass_flow_rate: SINumber,
         efficiency: f64,
         initial_temperature: SINumber,

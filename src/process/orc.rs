@@ -1,4 +1,4 @@
-use super::{Equipment, Process, ProcessModel, ProcessState};
+use super::{Equipment, Process, ProcessState};
 use feos_core::parameter::ParameterError;
 use feos_core::{Contributions, EosResult, EquationOfState, MolarWeight, PhaseEquilibrium, State};
 use quantity::si::*;
@@ -127,8 +127,8 @@ impl OrganicRankineCycle {
     }
 }
 
-impl ProcessModel for OrganicRankineCycle {
-    fn variables(&self) -> Vec<[Option<f64>; 2]> {
+impl OrganicRankineCycle {
+    pub fn variables(&self) -> Vec<[Option<f64>; 2]> {
         vec![
             [Some(0.0), None],
             [
@@ -143,7 +143,7 @@ impl ProcessModel for OrganicRankineCycle {
         ]
     }
 
-    fn constraints(&self) -> Vec<[Option<f64>; 3]> {
+    pub fn constraints(&self) -> Vec<[Option<f64>; 3]> {
         vec![
             // Pinch constraints
             [Some(1.0), None, None],
@@ -167,7 +167,7 @@ impl ProcessModel for OrganicRankineCycle {
         ]
     }
 
-    fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
+    pub fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
         &self,
         eos: &Rc<E>,
         x: &[f64],
@@ -186,11 +186,15 @@ impl ProcessModel for OrganicRankineCycle {
 
         // Calculate phase equilibria
         let vle_cond = PhaseEquilibrium::pure_p(eos, p_cond, None, Default::default())?;
+        let vle_cond = Rc::new(vle_cond);
         let vle_evap = PhaseEquilibrium::pure_p(eos, p_evap, None, Default::default())?;
+        let vle_evap = Rc::new(vle_evap);
 
         // Initialize process
         let mut process = Process::new();
-        let feed = process.initialize(ProcessState::SinglePhase(vle_cond.liquid().clone()));
+        let feed = process.initialize(ProcessState::SinglePhase(Box::new(
+            vle_cond.liquid().clone(),
+        )));
 
         // Calculate pump
         let pump = Equipment::pump(
