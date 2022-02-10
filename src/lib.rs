@@ -9,8 +9,8 @@ use std::path::Path;
 mod molecule;
 mod process;
 mod property;
+pub use molecule::FixedMolecule;
 use molecule::MolecularRepresentation;
-pub use molecule::{FixedMolecule, FunctionalGroup, HomoGc, Molecule, SuperMolecule};
 pub use process::{
     Equipment, OrganicRankineCycle, Process, ProcessModel, ProcessPlot, ProcessPoint, ProcessState,
     ProcessStep, StatePoint,
@@ -23,16 +23,20 @@ mod python;
 #[derive(Serialize, Deserialize)]
 pub struct OptimizationProblem {
     pub molecule: MolecularRepresentation,
-    pub property_model: PropertyModel,
-    pub process: ProcessModel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub property_model: Option<PropertyModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub process: Option<ProcessModel>,
     pub solutions: Vec<OptimizationResult>,
 }
 
 impl OptimizationProblem {
     pub fn new(
         molecule: MolecularRepresentation,
-        property_model: PropertyModel,
-        process: ProcessModel,
+        property_model: Option<PropertyModel>,
+        process: Option<ProcessModel>,
     ) -> Self {
         Self {
             molecule,

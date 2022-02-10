@@ -1,37 +1,7 @@
-use crate::molecule::{FixedMolecule, FunctionalGroup, HomoGc, Molecule, SuperMolecule};
+use crate::molecule::{FixedMolecule, SuperMolecule};
 use feos_core::python::parameter::PyChemicalRecord;
 use pyo3::prelude::*;
 use std::vec::Vec;
-
-#[pyclass(name = "HomoGc")]
-#[derive(Clone)]
-pub struct PyHomoGc(pub HomoGc);
-
-#[pymethods]
-impl PyHomoGc {
-    #[new]
-    fn new(size: usize, functional_groups: Vec<(String, String)>) -> Self {
-        let functional_groups = functional_groups
-            .into_iter()
-            .map(FunctionalGroup::from)
-            .collect();
-        Self(HomoGc::new(size, functional_groups))
-    }
-
-    #[getter]
-    fn get_size(&self) -> usize {
-        self.0.size
-    }
-
-    #[getter]
-    fn get_variables(&self) -> usize {
-        self.0.variables()
-    }
-
-    fn build(&self, y: Vec<f64>) -> PyChemicalRecord {
-        PyChemicalRecord(self.0.build(y))
-    }
-}
 
 #[pyclass(name = "SuperMolecule")]
 #[derive(Clone)]
@@ -40,22 +10,28 @@ pub struct PySuperMolecule(pub SuperMolecule);
 #[pymethods]
 impl PySuperMolecule {
     #[new]
-    fn new(size: usize, functional_groups: Vec<(String, String)>) -> Self {
-        let functional_groups = functional_groups
-            .into_iter()
-            .map(FunctionalGroup::from)
-            .collect();
-        Self(SuperMolecule::new(size, functional_groups))
+    fn new(size: usize) -> Self {
+        Self(SuperMolecule::new(size, None))
     }
 
-    #[getter]
-    fn get_size(&self) -> usize {
-        self.0.size
+    #[staticmethod]
+    fn new_ketone(size: usize) -> Self {
+        Self(SuperMolecule::new_ketone(size, None))
+    }
+
+    #[staticmethod]
+    fn new_alkene(size: usize) -> Self {
+        Self(SuperMolecule::new_alkene(size, None))
     }
 
     #[getter]
     fn get_variables(&self) -> usize {
         self.0.variables()
+    }
+
+    #[getter]
+    fn get_size_constraint(&self) -> (Vec<usize>, usize) {
+        self.0.size_constraint()
     }
 
     #[getter]
@@ -77,27 +53,8 @@ impl PySuperMolecule {
         PyChemicalRecord(self.0.build(y))
     }
 
-    fn _repr_mimebundle_(
-        &self,
-        py: Python,
-        include: Option<Vec<String>>,
-        exclude: Option<Vec<String>>,
-    ) -> PyResult<PyObject> {
-        let fun: Py<PyAny> = PyModule::from_code(
-            py,
-            "def f(s, include, exclude):
-                import graphviz
-                return graphviz.Source(s.replace('\\\\\"', ''))._repr_mimebundle_(include, exclude)",
-            "",
-            "",
-        )?
-        .getattr("f")?
-        .into();
-        fun.call1(py, (self.0.indices(), include, exclude))
-    }
-
-    fn molecule(&self, y: Vec<usize>) -> PyMolecule {
-        PyMolecule(self.0.molecule(y))
+    fn smiles(&self, y: Vec<usize>) -> String {
+        self.0.smiles(y)
     }
 }
 
@@ -119,35 +76,5 @@ impl PyFixedMolecule {
 
     fn build(&self, y: Vec<f64>) -> PyChemicalRecord {
         PyChemicalRecord(self.0.build(y))
-    }
-}
-
-#[pyclass(name = "Molecule", unsendable)]
-pub struct PyMolecule(Molecule);
-
-#[pymethods]
-impl PyMolecule {
-    #[getter]
-    fn get_smiles(&self) -> String {
-        self.0.smiles()
-    }
-
-    fn _repr_mimebundle_(
-        &self,
-        py: Python,
-        include: Option<Vec<String>>,
-        exclude: Option<Vec<String>>,
-    ) -> PyResult<PyObject> {
-        let fun: Py<PyAny> = PyModule::from_code(
-            py,
-            "def f(s, include, exclude):
-                import graphviz
-                return graphviz.Source(s.replace('\\\\\"', ''))._repr_mimebundle_(include, exclude)",
-            "",
-            "",
-        )?
-        .getattr("f")?
-        .into();
-        fun.call1(py, (self.0.dot(), include, exclude))
     }
 }

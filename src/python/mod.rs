@@ -14,7 +14,7 @@ use quantity::python::PyInit_quantity;
 mod molecule;
 mod process;
 mod property;
-use molecule::{PyFixedMolecule, PyHomoGc, PySuperMolecule};
+use molecule::{PyFixedMolecule, PySuperMolecule};
 use process::PyOrganicRankineCycle;
 use property::{PyPhaseDiagramPure, PyPhaseEquilibrium, PyPropertyModel, PyState};
 
@@ -24,11 +24,13 @@ pub struct PyOptimizationProblem(OptimizationProblem);
 #[pymethods]
 impl PyOptimizationProblem {
     #[new]
-    fn new(molecule: &PyAny, property_model: PyPropertyModel, process: &PyAny) -> PyResult<Self> {
+    fn new(
+        molecule: &PyAny,
+        property_model: Option<PyPropertyModel>,
+        process: Option<&PyAny>,
+    ) -> PyResult<Self> {
         let molecule = if let Ok(molecule) = molecule.extract::<PySuperMolecule>() {
             MolecularRepresentation::SuperMolecule(molecule.0)
-        } else if let Ok(molecule) = molecule.extract::<PyHomoGc>() {
-            MolecularRepresentation::HomoGc(molecule.0)
         } else if let Ok(molecule) = molecule.extract::<PyFixedMolecule>() {
             MolecularRepresentation::FixedMolecule(molecule.0)
         } else {
@@ -36,16 +38,20 @@ impl PyOptimizationProblem {
                 "Parameter `molecule` has an invalid type.",
             ));
         };
-        let process = if let Ok(process) = process.extract::<PyOrganicRankineCycle>() {
-            ProcessModel::OrganicRankineCycle(process.0)
-        } else {
-            return Err(PyValueError::new_err(
-                "Parameter `process` has an invalid type.",
-            ));
-        };
+        let process = process
+            .map(|process| {
+                if let Ok(process) = process.extract::<PyOrganicRankineCycle>() {
+                    Ok(ProcessModel::OrganicRankineCycle(process.0))
+                } else {
+                    Err(PyValueError::new_err(
+                        "Parameter `process` has an invalid type.",
+                    ))
+                }
+            })
+            .transpose()?;
         Ok(Self(OptimizationProblem::new(
             molecule,
-            property_model.0,
+            property_model.map(|p| p.0),
             process,
         )))
     }
@@ -60,7 +66,6 @@ impl PyOptimizationProblem {
             MolecularRepresentation::SuperMolecule(molecule) => {
                 PySuperMolecule(molecule.clone()).into_py(py)
             }
-            MolecularRepresentation::HomoGc(molecule) => PyHomoGc(molecule.clone()).into_py(py),
             MolecularRepresentation::FixedMolecule(molecule) => {
                 PyFixedMolecule(molecule.clone()).into_py(py)
             }
@@ -68,17 +73,17 @@ impl PyOptimizationProblem {
     }
 
     #[getter]
-    fn get_property_model(&self) -> PyPropertyModel {
-        PyPropertyModel(self.0.property_model.clone())
+    fn get_property_model(&self) -> Option<PyPropertyModel> {
+        self.0.property_model.clone().map(PyPropertyModel)
     }
 
     #[getter]
-    fn get_process(&self, py: Python) -> PyObject {
-        match &self.0.process {
+    fn get_process(&self, py: Python) -> Option<PyObject> {
+        self.0.process.clone().map(|process| match process {
             ProcessModel::OrganicRankineCycle(process) => {
-                PyOrganicRankineCycle(process.clone()).into_py(py)
+                PyOrganicRankineCycle(process).into_py(py)
             }
-        }
+        })
     }
 
     #[getter]
@@ -142,7 +147,6 @@ pub fn feos_campd(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyOptimizationResult>()?;
     m.add_class::<PyOrganicRankineCycle>()?;
     m.add_class::<PySuperMolecule>()?;
-    m.add_class::<PyHomoGc>()?;
     m.add_class::<PyFixedMolecule>()?;
     m.add_class::<PyPropertyModel>()?;
 
