@@ -228,6 +228,7 @@ impl ProcessStep {
                         StateBuilder::new(states[0].state.eos())
                             .temperature(temperature.get(i))
                             .pressure(pressure)
+                            .initial_density(states[0].state.density())
                             .build()
                             .unwrap(),
                     ))

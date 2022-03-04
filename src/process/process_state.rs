@@ -83,6 +83,13 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         }
     }
 
+    pub fn density(&self) -> SINumber {
+        match self {
+            Self::SinglePhase(state) => state.density,
+            Self::TwoPhase(vle, _) => vle.vapor().density,
+        }
+    }
+
     pub fn pressure(&self) -> SINumber {
         match self {
             Self::SinglePhase(state) => state.pressure(Contributions::Total),
