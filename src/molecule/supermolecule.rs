@@ -55,7 +55,7 @@ impl FunctionalGroup {
 
     pub fn cdc() -> Self {
         Self {
-            groups: vec!["=C<=".into(), "=CH".into(), "=CH2".into()],
+            groups: vec!["=C<".into(), "=CH".into(), "=CH2".into()],
             smiles: vec!["C".into(), "".into(), "=C".into(), "".into()],
             atoms: 2,
         }
@@ -586,7 +586,6 @@ mod test {
     fn isomers(molecule: SuperMolecule) -> usize {
         let mut res = 0;
         let (size_constraint, size) = molecule.size_constraint();
-        println!("{:?} {}", size_constraint, size);
         let functional_group_constraint = molecule.functional_group_constraint();
         let bond_constraints = molecule.bond_constraints();
         let symmetry_constraints = molecule.symmetry_constraints();
@@ -640,8 +639,7 @@ mod test {
         assert_eq!(isomers(SuperMolecule::new(6, Some(vec![oh.clone()]))), 16);
         assert_eq!(isomers(SuperMolecule::new(7, Some(vec![oh.clone()]))), 33);
         assert_eq!(isomers(SuperMolecule::new(8, Some(vec![oh.clone()]))), 72);
-        assert_eq!(isomers(SuperMolecule::new(8, Some(vec![oh.clone()]))), 72);
-        // assert_eq!(isomers(SuperMolecule::new(9, Some(vec![oh.clone()]))), 161);
+        assert_eq!(isomers(SuperMolecule::new(9, Some(vec![oh.clone()]))), 161);
     }
 
     #[test]
@@ -650,5 +648,13 @@ mod test {
         assert_eq!(isomers(SuperMolecule::new_alkene(4, None)), 4);
         assert_eq!(isomers(SuperMolecule::new_alkene(5, None)), 9);
         assert_eq!(isomers(SuperMolecule::new_alkene(6, None)), 23);
+    }
+
+    #[test]
+    fn test_isomers_ketones() {
+        assert_eq!(isomers(SuperMolecule::new_ketone(3, None)), 1);
+        assert_eq!(isomers(SuperMolecule::new_ketone(4, None)), 3);
+        assert_eq!(isomers(SuperMolecule::new_ketone(5, None)), 6);
+        assert_eq!(isomers(SuperMolecule::new_ketone(6, None)), 13);
     }
 }
