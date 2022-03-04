@@ -17,8 +17,9 @@ impl Equipment {
     pub fn total_condenser<E: EquationOfState + MolarWeight<SIUnit>>(
         process: &mut Process<E>,
         mut feed: StatePoint,
-        mass_flow_rate: SINumber,
+        mass_flow_rate: Option<SINumber>,
         vle: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
+        subcooling: Option<SINumber>,
     ) -> EosResult<Self> {
         let mut states = Vec::new();
         if !process[feed].is_two_phase() {
@@ -37,13 +38,27 @@ impl Equipment {
             ProcessStep::phase_change(mass_flow_rate),
         );
         states.push(liquid);
+        if let Some(dt) = subcooling {
+            let pressure = process[feed].pressure();
+            let state_out = StateBuilder::new(process[feed].eos())
+                .pressure(pressure)
+                .temperature(vle.liquid().temperature - dt)
+                .liquid()
+                .build()?;
+            let (subcooled, _) = process.add_step(
+                liquid,
+                ProcessState::SinglePhase(Box::new(state_out)),
+                ProcessStep::isobaric(mass_flow_rate),
+            );
+            states.push(subcooled);
+        }
         Ok(Self { states })
     }
 
     pub fn evaporator<E: EquationOfState + MolarWeight<SIUnit>>(
         process: &mut Process<E>,
         feed: StatePoint,
-        mass_flow_rate: SINumber,
+        mass_flow_rate: Option<SINumber>,
         vle: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
         superheating: Option<SINumber>,
     ) -> EosResult<Self> {
@@ -81,7 +96,7 @@ impl Equipment {
         process: &mut Process<E>,
         feed: StatePoint,
         vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
-        mass_flow_rate: SINumber,
+        mass_flow_rate: Option<SINumber>,
         efficiency: f64,
     ) -> EosResult<Self> {
         Self::pressure_changer(
@@ -98,7 +113,7 @@ impl Equipment {
         process: &mut Process<E>,
         feed: StatePoint,
         vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
-        mass_flow_rate: SINumber,
+        mass_flow_rate: Option<SINumber>,
         efficiency: f64,
     ) -> EosResult<Self> {
         Self::pressure_changer(
@@ -111,11 +126,28 @@ impl Equipment {
         )
     }
 
+    pub fn compressor<E: EquationOfState + MolarWeight<SIUnit>>(
+        process: &mut Process<E>,
+        feed: StatePoint,
+        vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
+        mass_flow_rate: Option<SINumber>,
+        efficiency: f64,
+    ) -> EosResult<Self> {
+        Self::pressure_changer(
+            process,
+            feed,
+            vle_out,
+            mass_flow_rate,
+            1.0 / efficiency,
+            vle_out.vapor().temperature,
+        )
+    }
+
     fn pressure_changer<E: EquationOfState + MolarWeight<SIUnit>>(
         process: &mut Process<E>,
         feed: StatePoint,
         vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
-        mass_flow_rate: SINumber,
+        mass_flow_rate: Option<SINumber>,
         efficiency: f64,
         initial_temperature: SINumber,
     ) -> EosResult<Self> {
@@ -137,6 +169,29 @@ impl Equipment {
             pressure_out,
             vle_out,
             state2s.temperature(),
+        )?;
+        let (out, _) = process.add_step(feed, out, ProcessStep::polytropic(mass_flow_rate));
+
+        Ok(Self {
+            states: vec![feed, out],
+        })
+    }
+
+    pub fn throttle<E: EquationOfState + MolarWeight<SIUnit>>(
+        process: &mut Process<E>,
+        feed: StatePoint,
+        vle_out: &Rc<PhaseEquilibrium<SIUnit, E, 2>>,
+        mass_flow_rate: Option<SINumber>,
+    ) -> EosResult<Self> {
+        let pressure_out = vle_out.vapor().pressure(Contributions::Total);
+        let h1 = process[feed].molar_enthalpy();
+        let t2 = vle_out.vapor().temperature;
+        let out = ProcessState::new_pure_enthalpy_pressure(
+            process[feed].eos(),
+            h1,
+            pressure_out,
+            vle_out,
+            t2,
         )?;
         let (out, _) = process.add_step(feed, out, ProcessStep::polytropic(mass_flow_rate));
 

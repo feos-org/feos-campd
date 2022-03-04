@@ -6,9 +6,11 @@ use std::ops::Index;
 use std::rc::Rc;
 
 mod equipment;
+mod heat_pump;
 mod orc;
 mod process_state;
 pub use equipment::Equipment;
+pub use heat_pump::HeatPump;
 pub use orc::OrganicRankineCycle;
 pub use process_state::ProcessState;
 
@@ -100,9 +102,40 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
             let index = self.graph.find_edge(s1, s2).unwrap();
             let h1 = self[s1].specific_enthalpy();
             let t1 = t2
-                - (h2 - h1) / (mass_flow_rate * heat_capacity) * self.graph[index].mass_flow_rate;
+                - (h2 - h1) / (mass_flow_rate * heat_capacity)
+                    * self.graph[index].mass_flow_rate.unwrap();
             self.graph[s1].utility_temperature = Some([t1, min_approach_temperature]);
             self.graph[index].utility = Some(heat_capacity * mass_flow_rate);
+            h2 = h1;
+            t2 = t1;
+        }
+    }
+
+    pub fn add_utility_heat_sink(
+        &mut self,
+        equipment: &Equipment,
+        temperature_in: SINumber,
+        temperature_out: SINumber,
+        power: SINumber,
+        min_approach_temperature: SINumber,
+    ) {
+        let states = &equipment.states;
+        let out = *states.last().unwrap();
+        let inlet = *states.first().unwrap();
+        let mut h2 = self[out].specific_enthalpy();
+        let mut t2 = temperature_in;
+        // Calculate necessary mass flow rate
+        let mwf = power / (self[inlet].specific_enthalpy() - self[out].specific_enthalpy());
+
+        let mcp_utility = power / (temperature_out - temperature_in);
+        self.graph[out].utility_temperature = Some([t2, min_approach_temperature]);
+        for (&s1, &s2) in states.iter().rev().skip(1).zip(states.iter().rev()) {
+            let index = self.graph.find_edge(s1, s2).unwrap();
+            let h1 = self[s1].specific_enthalpy();
+            let mass_flow_rate_wf = self.graph[index].mass_flow_rate.unwrap_or(mwf);
+            let t1 = t2 - (h2 - h1) / (mcp_utility) * mass_flow_rate_wf;
+            self.graph[s1].utility_temperature = Some([t1, min_approach_temperature]);
+            self.graph[index].utility = Some(mcp_utility);
             h2 = h1;
             t2 = t1;
         }
@@ -161,12 +194,12 @@ enum StateChange {
 
 pub struct ProcessStep {
     state_change: StateChange,
-    mass_flow_rate: SINumber,
+    mass_flow_rate: Option<SINumber>,
     utility: Option<SINumber>,
 }
 
 impl ProcessStep {
-    pub fn phase_change(mass_flow_rate: SINumber) -> Self {
+    pub fn phase_change(mass_flow_rate: Option<SINumber>) -> Self {
         Self {
             state_change: StateChange::PhaseChange,
             mass_flow_rate,
@@ -174,7 +207,7 @@ impl ProcessStep {
         }
     }
 
-    pub fn isobaric(mass_flow_rate: SINumber) -> Self {
+    pub fn isobaric(mass_flow_rate: Option<SINumber>) -> Self {
         Self {
             state_change: StateChange::Isobaric,
             mass_flow_rate,
@@ -182,7 +215,7 @@ impl ProcessStep {
         }
     }
 
-    pub fn polytropic(mass_flow_rate: SINumber) -> Self {
+    pub fn polytropic(mass_flow_rate: Option<SINumber>) -> Self {
         Self {
             state_change: StateChange::Polytropic,
             mass_flow_rate,
@@ -197,7 +230,7 @@ impl ProcessStep {
         match self.state_change {
             StateChange::Polytropic => {
                 (states[1].specific_enthalpy() - states[0].specific_enthalpy())
-                    * self.mass_flow_rate
+                    * self.mass_flow_rate.unwrap()
             }
             _ => 0.0 * WATT,
         }
@@ -241,7 +274,7 @@ impl ProcessStep {
                     });
                     let h_out = enthalpy.get(49);
                     states[1].utility_temperature.unwrap()[0]
-                        + (enthalpy - h_out) / u * self.mass_flow_rate
+                        + (enthalpy - h_out) / u * self.mass_flow_rate.unwrap()
                 });
                 ProcessPlot {
                     temperature,

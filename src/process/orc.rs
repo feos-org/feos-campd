@@ -201,13 +201,13 @@ impl OrganicRankineCycle {
             &mut process,
             feed,
             &vle_evap,
-            mwf,
+            Some(mwf),
             self.isentropic_pump_efficiency,
         )?;
 
         // Calculate evaporator
         let evaporator =
-            Equipment::evaporator(&mut process, pump.out(), mwf, &vle_evap, Some(dt_sh))?;
+            Equipment::evaporator(&mut process, pump.out(), Some(mwf), &vle_evap, Some(dt_sh))?;
         process.add_utility(
             &evaporator,
             self.heat_source_temperature,
@@ -221,12 +221,12 @@ impl OrganicRankineCycle {
             &mut process,
             evaporator.out(),
             &vle_cond,
-            mwf,
+            Some(mwf),
             self.isentropic_turbine_efficiency,
         )?;
 
         // Calculate condenser
-        Equipment::total_condenser(&mut process, turbine.out(), mwf, &vle_cond)?;
+        Equipment::total_condenser(&mut process, turbine.out(), Some(mwf), &vle_cond, None)?;
 
         // Target
         let target = process.net_power().to_reduced(MEGA * WATT)?;
