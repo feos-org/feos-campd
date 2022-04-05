@@ -12,8 +12,8 @@ mod property;
 pub use molecule::FixedMolecule;
 use molecule::MolecularRepresentation;
 pub use process::{
-    Equipment, OrganicRankineCycle, Process, ProcessModel, ProcessPlot, ProcessPoint, ProcessState,
-    ProcessStep, StatePoint,
+    Equipment, OrganicRankineCycle, OrganicRankineCycleSuperStructure, Process, ProcessModel,
+    ProcessPlot, ProcessPoint, ProcessState, StatePoint, Utility, UtilitySpecification,
 };
 pub use property::{EquationsOfState, PropertyModel};
 

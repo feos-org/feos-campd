@@ -15,13 +15,46 @@ impl PySuperMolecule {
     }
 
     #[staticmethod]
-    fn new_ketone(size: usize) -> Self {
-        Self(SuperMolecule::new_ketone(size, None))
+    fn alkane(size: usize) -> Self {
+        Self(SuperMolecule::alkane(size))
     }
 
     #[staticmethod]
-    fn new_alkene(size: usize) -> Self {
-        Self(SuperMolecule::new_alkene(size, None))
+    fn alkene(size: usize) -> Self {
+        Self(SuperMolecule::alkene(size))
+    }
+
+    #[staticmethod]
+    fn alkyne(size: usize) -> Self {
+        Self(SuperMolecule::alkyne(size))
+    }
+
+    #[staticmethod]
+    fn alcohol(size: usize) -> Self {
+        Self(SuperMolecule::alcohol(size))
+    }
+
+    #[staticmethod]
+    fn methylether(size: usize) -> Self {
+        Self(SuperMolecule::methylether(size))
+    }
+
+    #[staticmethod]
+    fn ketone(size: usize) -> Self {
+        Self(SuperMolecule::ketone(size))
+    }
+
+    #[staticmethod]
+    fn amine(size: usize) -> Self {
+        Self(SuperMolecule::amine(size))
+    }
+
+    #[staticmethod]
+    fn all(size: usize) -> Vec<(String, Self)> {
+        SuperMolecule::all(size)
+            .into_iter()
+            .map(|(s, m)| (s, Self(m)))
+            .collect()
     }
 
     #[getter]

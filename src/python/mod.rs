@@ -1,22 +1,20 @@
-use super::{
-    MolecularRepresentation, OptimizationProblem, OptimizationResult, OrganicRankineCycle, Process,
-    ProcessModel,
-};
-use feos_core::impl_json_handling;
+use super::{MolecularRepresentation, OptimizationProblem, OptimizationResult, ProcessModel};
 use feos_core::parameter::ParameterError;
 use feos_core::python::parameter::{PyChemicalRecord, PyIdentifier};
-use feos_core::python::{PyContributions, PyVerbosity};
+use feos_core::{impl_json_handling, Contributions, Verbosity};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::wrap_pymodule;
-use quantity::python::PyInit_quantity;
+use quantity::python::__PYO3_PYMODULE_DEF_QUANTITY;
 
 mod molecule;
+mod orc;
 mod process;
 mod property;
 use molecule::{PyFixedMolecule, PySuperMolecule};
-use process::PyOrganicRankineCycle;
-use property::{PyPhaseDiagramPure, PyPhaseEquilibrium, PyPropertyModel, PyState};
+use orc::{PyOrganicRankineCycle, PyOrganicRankineCycleSuperStructure};
+use process::PyUtility;
+use property::{PyPhaseDiagram, PyPhaseEquilibrium, PyPropertyModel, PyState};
 
 #[pyclass(name = "OptimizationProblem")]
 pub struct PyOptimizationProblem(OptimizationProblem);
@@ -42,6 +40,9 @@ impl PyOptimizationProblem {
             .map(|process| {
                 if let Ok(process) = process.extract::<PyOrganicRankineCycle>() {
                     Ok(ProcessModel::OrganicRankineCycle(process.0))
+                } else if let Ok(process) = process.extract::<PyOrganicRankineCycleSuperStructure>()
+                {
+                    Ok(ProcessModel::OrganicRankineCycleSuperStructure(process.0))
                 } else {
                     Err(PyValueError::new_err(
                         "Parameter `process` has an invalid type.",
@@ -82,6 +83,9 @@ impl PyOptimizationProblem {
         self.0.process.clone().map(|process| match process {
             ProcessModel::OrganicRankineCycle(process) => {
                 PyOrganicRankineCycle(process).into_py(py)
+            }
+            ProcessModel::OrganicRankineCycleSuperStructure(process) => {
+                PyOrganicRankineCycleSuperStructure(process).into_py(py)
             }
         })
     }
@@ -132,10 +136,7 @@ impl PyOptimizationResult {
     fn get_x(&self) -> Vec<f64> {
         self.0.x.clone()
     }
-}
 
-#[pyproto]
-impl pyo3::class::basic::PyObjectProtocol for PyOptimizationResult {
     fn __repr__(&self) -> PyResult<String> {
         Ok(self.0.to_string())
     }
@@ -146,17 +147,19 @@ pub fn feos_campd(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyOptimizationProblem>()?;
     m.add_class::<PyOptimizationResult>()?;
     m.add_class::<PyOrganicRankineCycle>()?;
+    m.add_class::<PyOrganicRankineCycleSuperStructure>()?;
+    m.add_class::<PyUtility>()?;
     m.add_class::<PySuperMolecule>()?;
     m.add_class::<PyFixedMolecule>()?;
     m.add_class::<PyPropertyModel>()?;
 
     m.add_class::<PyIdentifier>()?;
-    m.add_class::<PyVerbosity>()?;
-    m.add_class::<PyContributions>()?;
+    m.add_class::<Verbosity>()?;
+    m.add_class::<Contributions>()?;
     m.add_class::<PyChemicalRecord>()?;
 
     m.add_class::<PyState>()?;
-    m.add_class::<PyPhaseDiagramPure>()?;
+    m.add_class::<PyPhaseDiagram>()?;
     m.add_class::<PyPhaseEquilibrium>()?;
 
     m.add_wrapped(wrap_pymodule!(quantity))?;

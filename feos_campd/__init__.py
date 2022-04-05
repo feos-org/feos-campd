@@ -4,6 +4,7 @@ from .feos_campd import (
     OptimizationResult,
     OptimizationProblem,
     OrganicRankineCycle,
+    OrganicRankineCycleSuperStructure,
     FixedMolecule,
 )
 from knitro import *
@@ -75,9 +76,8 @@ def setup_knitro_fixed_molecule(self, kc, solutions):
 
 
 def setup_knitro_process(self, kc, x0):
+    # declare continuous variables
     n_x = len(self.variables)
-
-    # set bounds
     indexVars = KN_add_vars(kc, n_x)
     for i, (l, u) in zip(indexVars, self.variables):
         if l is not None:
@@ -86,7 +86,12 @@ def setup_knitro_process(self, kc, x0):
             KN_set_var_upbnds(kc, i, u)
 
     # set initial values
-    KN_set_var_primal_init_values(kc, indexVars, x0)
+    KN_set_var_primal_init_values(kc, indexVars, x0[:n_x])
+
+    # declare binary variables
+    if self.binary_variables > 0:
+        indexVars = KN_add_vars(kc, self.binary_variables)
+        KN_set_var_types(kc, indexVars, [KN_VARTYPE_BINARY] * len(indexVars))
 
     # add constraints
     n_cons = len(self.constraints)
@@ -105,6 +110,7 @@ def setup_knitro_process(self, kc, x0):
 SuperMolecule.setup_knitro = setup_knitro_supermolecule
 FixedMolecule.setup_knitro = setup_knitro_fixed_molecule
 OrganicRankineCycle.setup_knitro = setup_knitro_process
+OrganicRankineCycleSuperStructure.setup_knitro = setup_knitro_process
 
 
 def solve_knitro(self, x0, n_solutions=1, options=None):

@@ -1,6 +1,6 @@
-use super::{Equipment, Process, ProcessState};
+use super::{Isobar, Process, ProcessState, Utility};
 use feos_core::parameter::ParameterError;
-use feos_core::{Contributions, EosResult, EquationOfState, MolarWeight, PhaseEquilibrium, State};
+use feos_core::{Contributions, EosResult, EquationOfState, MolarWeight, State};
 use quantity::si::*;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -10,59 +10,43 @@ use std::rc::Rc;
 
 #[derive(Serialize, Deserialize)]
 pub struct OrganicRankineCycleJSON {
-    #[serde(rename = "heat_source_temperature [°C]")]
-    heat_source_temperature: f64,
-    #[serde(rename = "heat_source_mass_flow_rate [kg/s]")]
-    heat_source_mass_flow_rate: f64,
-    #[serde(rename = "heat_source_heat_capacity [kJ/kg/K]")]
-    heat_source_heat_capacity: f64,
+    heat_source: Utility,
     isentropic_turbine_efficiency: f64,
     isentropic_pump_efficiency: f64,
-    #[serde(rename = "min_approach_temperature [K]")]
-    min_approach_temperature: f64,
     #[serde(rename = "min_abs_pressure [bar]")]
     min_abs_pressure: f64,
     min_red_pressure: f64,
     #[serde(rename = "max_abs_pressure [bar]")]
     max_abs_pressure: f64,
     max_red_pressure: f64,
-    #[serde(rename = "min_cooling_temperature [°C]")]
-    min_cooling_temperature: f64,
+    cooling: Utility,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(from = "OrganicRankineCycleJSON")]
 #[serde(into = "OrganicRankineCycleJSON")]
 pub struct OrganicRankineCycle {
-    heat_source_temperature: SINumber,
-    heat_source_mass_flow_rate: SINumber,
-    heat_source_heat_capacity: SINumber,
+    heat_source: Utility,
     isentropic_turbine_efficiency: f64,
     isentropic_pump_efficiency: f64,
-    min_approach_temperature: SINumber,
     min_abs_pressure: SINumber,
     min_red_pressure: f64,
     max_abs_pressure: SINumber,
     max_red_pressure: f64,
-    min_cooling_temperature: SINumber,
+    cooling: Utility,
 }
 
 impl From<OrganicRankineCycleJSON> for OrganicRankineCycle {
     fn from(orc: OrganicRankineCycleJSON) -> Self {
         Self {
-            heat_source_temperature: orc.heat_source_temperature * CELSIUS,
-            heat_source_mass_flow_rate: orc.heat_source_mass_flow_rate * KILOGRAM / SECOND,
-            heat_source_heat_capacity: orc.heat_source_heat_capacity * KILO * JOULE
-                / KILOGRAM
-                / KELVIN,
+            heat_source: orc.heat_source,
             isentropic_turbine_efficiency: orc.isentropic_turbine_efficiency,
             isentropic_pump_efficiency: orc.isentropic_pump_efficiency,
-            min_approach_temperature: orc.min_approach_temperature * KELVIN,
             min_abs_pressure: orc.min_abs_pressure * BAR,
             min_red_pressure: orc.min_red_pressure,
             max_abs_pressure: orc.max_abs_pressure * BAR,
             max_red_pressure: orc.max_red_pressure,
-            min_cooling_temperature: orc.min_cooling_temperature * CELSIUS,
+            cooling: orc.cooling,
         }
     }
 }
@@ -70,23 +54,14 @@ impl From<OrganicRankineCycleJSON> for OrganicRankineCycle {
 impl From<OrganicRankineCycle> for OrganicRankineCycleJSON {
     fn from(orc: OrganicRankineCycle) -> Self {
         Self {
-            heat_source_temperature: orc.heat_source_temperature / CELSIUS,
-            heat_source_mass_flow_rate: orc
-                .heat_source_mass_flow_rate
-                .to_reduced(KILOGRAM / SECOND)
-                .unwrap(),
-            heat_source_heat_capacity: orc
-                .heat_source_heat_capacity
-                .to_reduced(KILO * JOULE / KILOGRAM / KELVIN)
-                .unwrap(),
+            heat_source: orc.heat_source,
             isentropic_turbine_efficiency: orc.isentropic_turbine_efficiency,
             isentropic_pump_efficiency: orc.isentropic_pump_efficiency,
-            min_approach_temperature: orc.min_approach_temperature.to_reduced(KELVIN).unwrap(),
             min_abs_pressure: orc.min_abs_pressure.to_reduced(BAR).unwrap(),
             min_red_pressure: orc.min_red_pressure,
             max_abs_pressure: orc.max_abs_pressure.to_reduced(BAR).unwrap(),
             max_red_pressure: orc.max_red_pressure,
-            min_cooling_temperature: orc.min_cooling_temperature / CELSIUS,
+            cooling: orc.cooling,
         }
     }
 }
@@ -94,30 +69,24 @@ impl From<OrganicRankineCycle> for OrganicRankineCycleJSON {
 #[allow(clippy::too_many_arguments)]
 impl OrganicRankineCycle {
     pub fn new(
-        heat_source_temperature: SINumber,
-        heat_source_mass_flow_rate: SINumber,
-        heat_source_heat_capacity: SINumber,
+        heat_source: Utility,
         isentropic_turbine_efficiency: f64,
         isentropic_pump_efficiency: f64,
-        min_approach_temperature: SINumber,
         min_abs_pressure: SINumber,
         min_red_pressure: f64,
         max_abs_pressure: SINumber,
         max_red_pressure: f64,
-        min_cooling_temperature: SINumber,
+        cooling: Utility,
     ) -> Self {
         Self {
-            heat_source_temperature,
-            heat_source_mass_flow_rate,
-            heat_source_heat_capacity,
+            heat_source,
             isentropic_turbine_efficiency,
             isentropic_pump_efficiency,
-            min_approach_temperature,
             min_abs_pressure,
             min_red_pressure,
             max_abs_pressure,
             max_red_pressure,
-            min_cooling_temperature,
+            cooling,
         }
     }
 
@@ -143,15 +112,21 @@ impl OrganicRankineCycle {
         ]
     }
 
+    pub fn binary_variables(&self) -> usize {
+        0
+    }
+
     pub fn constraints(&self) -> Vec<[Option<f64>; 3]> {
         vec![
-            // Pinch constraints
-            [Some(1.0), None, None],
-            [Some(1.0), None, None],
-            [Some(1.0), None, None],
-            [Some(1.0), None, None],
-            // Min. cooling temperature
-            [Some(1.0), None, None],
+            // Pinch constraints evaporator
+            [Some(0.0), None, None],
+            [Some(0.0), None, None],
+            [Some(0.0), None, None],
+            [Some(0.0), None, None],
+            // Pinch constraints condenser
+            [Some(0.0), None, None],
+            [Some(0.0), None, None],
+            [Some(0.0), None, None],
             // Absolute pressure (bar)
             [
                 Some(self.min_abs_pressure.to_reduced(BAR).unwrap()),
@@ -173,7 +148,7 @@ impl OrganicRankineCycle {
         x: &[f64],
     ) -> EosResult<(Process<E>, f64, Vec<f64>)> {
         // unpack variables
-        let mwf = x[0] * self.heat_source_mass_flow_rate;
+        let mwf = x[0] * 50.0 * KILOGRAM / SECOND;
         let p_cond_red = x[1].exp();
         let p_evap_red = x[2].exp();
         let dt_sh = x[3] * 50.0 * KELVIN;
@@ -184,63 +159,40 @@ impl OrganicRankineCycle {
         let p_cond = p_cond_red * p_crit;
         let p_evap = p_evap_red * p_crit;
 
-        // Calculate phase equilibria
-        let vle_cond = PhaseEquilibrium::pure_p(eos, p_cond, None, Default::default())?;
-        let vle_cond = Rc::new(vle_cond);
-        let vle_evap = PhaseEquilibrium::pure_p(eos, p_evap, None, Default::default())?;
-        let vle_evap = Rc::new(vle_evap);
+        // Calculate isobars
+        let isobar_cond = Isobar::new(eos, p_cond);
+        let isobar_evap = Isobar::new(eos, p_evap);
 
         // Initialize process
         let mut process = Process::new();
-        let feed = process.initialize(ProcessState::SinglePhase(Box::new(
-            vle_cond.liquid().clone(),
-        )));
 
         // Calculate pump
-        let pump = Equipment::pump(
-            &mut process,
-            feed,
-            &vle_evap,
+        let feed = process.add_state(ProcessState::SinglePhase(
+            Box::new(isobar_cond.saturated_liquid()?.clone()),
             Some(mwf),
-            self.isentropic_pump_efficiency,
-        )?;
+        ));
+        let pump = process.pump(feed, &isobar_evap, self.isentropic_pump_efficiency)?;
 
         // Calculate evaporator
-        let evaporator =
-            Equipment::evaporator(&mut process, pump.out(), Some(mwf), &vle_evap, Some(dt_sh))?;
-        process.add_utility(
-            &evaporator,
-            self.heat_source_temperature,
-            self.heat_source_mass_flow_rate,
-            self.heat_source_heat_capacity,
-            self.min_approach_temperature,
-        );
+        let evaporator = process.evaporator(pump.out(), &isobar_evap, Some(dt_sh))?;
+        process.add_utility(&evaporator, self.heat_source);
 
         // Calculate turbine
-        let turbine = Equipment::turbine(
-            &mut process,
+        let turbine = process.turbine(
             evaporator.out(),
-            &vle_cond,
-            Some(mwf),
+            &isobar_cond,
             self.isentropic_turbine_efficiency,
         )?;
 
         // Calculate condenser
-        Equipment::total_condenser(&mut process, turbine.out(), Some(mwf), &vle_cond, None)?;
+        let condenser = process.total_condenser(turbine.out(), &isobar_cond, None)?;
+        process.add_utility(&condenser, self.cooling);
 
         // Target
-        let target = process.net_power().to_reduced(MEGA * WATT)?;
+        let target = process.net_power().unwrap().to_reduced(MEGA * WATT)?;
 
-        // Pitch constraints
+        // Pinch constraints
         let mut constraints = process.pinch_constraints();
-
-        // Min. cooling temperature
-        constraints.push(
-            vle_cond
-                .vapor()
-                .temperature
-                .to_reduced(self.min_cooling_temperature)?,
-        );
 
         // Absolute pressure constraints
         constraints.push(p_cond.to_reduced(BAR)?);
@@ -250,3 +202,33 @@ impl OrganicRankineCycle {
         Ok((process, target, constraints))
     }
 }
+
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+//     use feos_core::parameter::{IdentifierOption, Parameter};
+//     use feos_pcsaft::{PcSaft, PcSaftParameters};
+
+//     #[test]
+//     fn test_json() {
+//         let orc: OrganicRankineCycle =
+//             serde_json::from_reader(BufReader::new(File::open("orc.json").unwrap())).unwrap();
+//         let params = PcSaftParameters::from_json(
+//             vec!["propane"],
+//             "gross2001.json",
+//             None,
+//             IdentifierOption::Name,
+//         )
+//         .unwrap();
+//         let eos = Rc::new(PcSaft::new(Rc::new(params)));
+//         let result = orc.solve(&eos, &[0.786, -4.5, -1.2, 0.8]).unwrap();
+//         let u1 = Utility::ConstantTemperature;
+//         let u2 = Utility::HeatCapacityRate(6.0 * WATT / KELVIN);
+//         let u3 = Utility::OutletTemperature(25.0 * CELSIUS);
+//         println!("{}", serde_json::to_string(&u1).unwrap());
+//         println!("{}", serde_json::to_string(&u2).unwrap());
+//         println!("{}", serde_json::to_string(&u3).unwrap());
+//         println!("{} {}", 0.0f64.signum(), (-0.0f64).signum());
+//         assert!(false);
+//     }
+// }

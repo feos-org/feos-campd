@@ -1,29 +1,29 @@
 [package]
 name = "feos-campd"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "feos_campd"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-quantity = "0.4"
-feos-core = "0.1"
+quantity = "0.5"
+feos-core = { git = "https://github.com/feos-org/feos-core" }
 ndarray = "0.15"
 petgraph = "0.6"
 num-traits = "0.2"
-num-dual = "0.4"
-feos-pcsaft = { path = "../feos-pcsaft" }
+num-dual = "0.5"
+feos-pcsaft = { git = "https://github.com/feos-org/feos-pcsaft" }
 feos-gc-pcsaft = { path = "../feos-gc-pcsaft" }
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-numpy = { version = "0.15", optional = true }
+numpy = { version = "0.16", optional = true }
 
 [dependencies.pyo3]
-version = "0.15"
-features = ["extension-module", "abi3", "abi3-py36"]
+version = "0.16"
+features = ["extension-module", "abi3", "abi3-py37"]
 optional = true
 
 [dev-dependencies]

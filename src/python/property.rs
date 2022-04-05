@@ -1,7 +1,6 @@
 use crate::property::{EquationsOfState, PropertyModel};
 use feos_core::parameter::ParameterError;
 use feos_core::python::parameter::PyChemicalRecord;
-use feos_core::python::{PyContributions, PyVerbosity};
 use feos_core::*;
 use numpy::convert::ToPyArray;
 use numpy::{PyArray1, PyArray2};
@@ -19,7 +18,7 @@ pub struct PyEquationsOfState(pub Rc<EquationsOfState>);
 impl_equation_of_state!(PyEquationsOfState);
 impl_state!(EquationsOfState, PyEquationsOfState);
 impl_state_molarweight!(PcSaft, PyPcSaft);
-impl_vle_state!(EquationsOfState, PyEquationsOfState);
+impl_phase_equilibrium!(EquationsOfState, PyEquationsOfState);
 
 #[pyclass(name = "PropertyModel")]
 #[derive(Clone)]
