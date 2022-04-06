@@ -73,7 +73,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
                 // Add a dummy step to make sure the number of pinch constraints is always the same
                 self[feed].clone()
             } else {
-                ProcessState::TwoPhase(vle.clone(), 0.0, mass_flow_rate)
+                ProcessState::TwoPhase(vle.clone(), 1.0, mass_flow_rate)
             };
         let superheated_state = superheating
             .map(|dt| vapor_state.isobaric_temperature_change(dt, DensityInitialization::Vapor))
