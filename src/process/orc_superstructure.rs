@@ -11,7 +11,7 @@ use std::io::BufReader;
 use std::path::Path;
 use std::rc::Rc;
 
-const BIG_O: f64 = 500.0;
+const BIG_M: f64 = 500.0;
 
 #[derive(Serialize, Deserialize)]
 pub struct OrganicRankineCycleSuperStructureJSON {
@@ -147,16 +147,9 @@ impl OrganicRankineCycleSuperStructure {
                 Some(self.max_red_pressure.ln()),
             ],
             // superheating
-            [Some(0.0), None],
+            [Some(0.0), Some(1.0)],
             // heat flow recuperator
-            [
-                Some(
-                    self.min_heat_transfer_rate_recuperator
-                        .to_reduced(MEGA * WATT)
-                        .unwrap(),
-                ),
-                None,
-            ],
+            [Some(0.0), None],
         ]
     }
 
@@ -181,6 +174,7 @@ impl OrganicRankineCycleSuperStructure {
             [Some(0.0), None, None],
             [Some(0.0), None, None],
             [Some(0.0), None, None],
+            [Some(0.0), None, None],
             // Heat source outlet
             [Some(0.0), None, None],
         ]
@@ -192,10 +186,10 @@ impl OrganicRankineCycleSuperStructure {
         x: &[f64],
     ) -> EosResult<(Process<E>, f64, Vec<f64>)> {
         // unpack variables
-        let mwf = x[0] * 50.0 * KILOGRAM / SECOND;
+        let mwf = x[0] * KILOGRAM / SECOND;
         let p_cond_red = x[1].exp();
         let p_evap_red = x[2].exp();
-        let dt_sh = x[3] * 50.0 * KELVIN;
+        let dt_sh = x[3] * (self.heat_source.temperature - self.min_heat_source_outlet_temperature);
         let q_rec = x[4] * MEGA * WATT;
         let recuperator = x[5];
 
@@ -230,17 +224,8 @@ impl OrganicRankineCycleSuperStructure {
         let turbine = process.turbine(feed, &isobar_cond, self.isentropic_turbine_efficiency)?;
 
         // Calculate Recuperator
-        // let [liquid1, liquid2] = process.split(pump.out(), split);
-        // let [vapor1, vapor2] = process.split(turbine.out(), split);
-        let [recuperator_liquid, recuperator_vapor] = process.recuperator(
-            pump.out(),
-            turbine.out(),
-            &isobar_evap,
-            &isobar_cond,
-            q_rec * recuperator,
-        )?;
-        // let mix_liquid = process.isobaric_mixer(recuperator_liquid.out(), liquid2, &isobar_evap)?;
-        // let mix_vapor = process.isobaric_mixer(recuperator_vapor.out(), vapor2, &isobar_evap)?;
+        let [recuperator_liquid, recuperator_vapor] =
+            process.recuperator(pump.out(), turbine.out(), &isobar_evap, &isobar_cond, q_rec)?;
 
         // Calculate evaporator
         let evaporator = process.evaporator(recuperator_liquid.out(), &isobar_evap, Some(dt_sh))?;
@@ -251,7 +236,7 @@ impl OrganicRankineCycleSuperStructure {
         process.add_utility(&condenser, self.cooling);
 
         // Target
-        let target = process.net_power().unwrap().to_reduced(MEGA * WATT)?;
+        let target = process.net_power().unwrap().to_reduced(KILO * WATT)?;
 
         // Pinch constraints
         let mut constraints = process.pinch_constraints();
@@ -266,19 +251,18 @@ impl OrganicRankineCycleSuperStructure {
             (process[turbine.out()].temperature()
                 - process[recuperator_liquid.out()].temperature())
             .to_reduced(self.min_temperature_difference_recuperator)?
-                + (1.0 - recuperator) * BIG_O
+                + (1.0 - recuperator) * BIG_M
                 - recuperator,
         );
         constraints.push(
             (process[recuperator_vapor.out()].temperature() - process[pump.out()].temperature())
                 .to_reduced(self.min_temperature_difference_recuperator)?
-                + (1.0 - recuperator) * BIG_O
+                + (1.0 - recuperator) * BIG_M
                 - recuperator,
         );
-        constraints.push(
-            1.0 - recuperator + recuperator * BIG_O
-                - q_rec.to_reduced(self.min_heat_transfer_rate_recuperator)?,
-        );
+        constraints.push(q_rec.to_reduced(self.min_heat_transfer_rate_recuperator)? - recuperator);
+        constraints
+            .push(recuperator * BIG_M - q_rec.to_reduced(self.min_heat_transfer_rate_recuperator)?);
 
         // Heat source outlet constraint
         constraints.push(

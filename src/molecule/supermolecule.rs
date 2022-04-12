@@ -705,15 +705,15 @@ mod test {
         res
     }
 
+    // https://pubs.acs.org/doi/pdf/10.1021/ja01359a027
     #[test]
     fn test_isomers_alcohols() {
-        let oh = FunctionalGroup::oh();
-        assert_eq!(isomers(SuperMolecule::new(4, Some(vec![oh.clone()]))), 4);
-        assert_eq!(isomers(SuperMolecule::new(5, Some(vec![oh.clone()]))), 8);
-        assert_eq!(isomers(SuperMolecule::new(6, Some(vec![oh.clone()]))), 16);
-        assert_eq!(isomers(SuperMolecule::new(7, Some(vec![oh.clone()]))), 33);
-        assert_eq!(isomers(SuperMolecule::new(8, Some(vec![oh.clone()]))), 72);
-        // assert_eq!(isomers(SuperMolecule::new(9, Some(vec![oh.clone()]))), 161);
+        assert_eq!(isomers(SuperMolecule::alcohol(4)), 4);
+        assert_eq!(isomers(SuperMolecule::alcohol(5)), 8);
+        assert_eq!(isomers(SuperMolecule::alcohol(6)), 16);
+        assert_eq!(isomers(SuperMolecule::alcohol(7)), 33);
+        assert_eq!(isomers(SuperMolecule::alcohol(8)), 72);
+        // assert_eq!(isomers(SuperMolecule::alcohol(9)), 161);
     }
 
     #[test]
