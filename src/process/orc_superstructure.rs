@@ -276,33 +276,3 @@ impl OrganicRankineCycleSuperStructure {
         Ok((process, target, constraints))
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use feos_core::parameter::{IdentifierOption, Parameter};
-    use feos_pcsaft::{PcSaft, PcSaftParameters};
-
-    #[test]
-    fn test_json() {
-        let orc: OrganicRankineCycleSuperStructure =
-            serde_json::from_reader(BufReader::new(File::open("orc.json").unwrap())).unwrap();
-        let params = PcSaftParameters::from_json(
-            vec!["propane"],
-            "gross2001.json",
-            None,
-            IdentifierOption::Name,
-        )
-        .unwrap();
-        let eos = Rc::new(PcSaft::new(Rc::new(params)));
-        orc.solve(&eos, &[1.15, -4.5, -1.2, 0.1, 0.1, 0.5]).unwrap();
-        // let u1 = Utility::ConstantTemperature;
-        // let u2 = Utility::HeatCapacityRate(6.0 * WATT / KELVIN);
-        // let u3 = Utility::OutletTemperature(25.0 * CELSIUS);
-        // println!("{}", serde_json::to_string(&u1).unwrap());
-        // println!("{}", serde_json::to_string(&u2).unwrap());
-        // println!("{}", serde_json::to_string(&u3).unwrap());
-        // println!("{} {}", 0.0f64.signum(), (-0.0f64).signum());
-        // assert!(false);
-    }
-}

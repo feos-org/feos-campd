@@ -128,7 +128,5 @@ mod test {
         let p1 = Polynomial2([[1.0, 2.0]]);
         let p2 = Polynomial2([[4.0, 5.0, 6.0]]);
         assert_eq!(p2 * p1, Polynomial2([[4.0, 13.0, 16.0]]));
-
-        // assert_eq!(p2 * p1 vec![p1, p2].into_iter().product());
     }
 }

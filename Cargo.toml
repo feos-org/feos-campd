@@ -29,5 +29,5 @@ itertools = "0.10"
 approx = "0.5"
 
 [features]
-default = ["python"]
+default = []
 python = ["pyo3", "numpy", "feos-core/python"]
