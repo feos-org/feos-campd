@@ -266,7 +266,7 @@ impl HeatPump {
         );
 
         // Target
-        let target = 
+        // let target =
         let target = process.net_power().to_reduced(MEGA * WATT)?;
 
         // Pitch constraints

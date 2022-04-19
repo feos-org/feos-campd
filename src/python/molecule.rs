@@ -1,7 +1,7 @@
 use crate::molecule::{FixedMolecule, SuperMolecule};
 use feos_core::python::parameter::PyChemicalRecord;
 use pyo3::prelude::*;
-use std::vec::Vec;
+use std::collections::HashMap;
 
 #[pyclass(name = "SuperMolecule")]
 #[derive(Clone)]
@@ -50,7 +50,7 @@ impl PySuperMolecule {
     }
 
     #[staticmethod]
-    fn all(size: usize) -> Vec<(String, Self)> {
+    fn all(size: usize) -> HashMap<String, Self> {
         SuperMolecule::all(size)
             .into_iter()
             .map(|(s, m)| (s, Self(m)))

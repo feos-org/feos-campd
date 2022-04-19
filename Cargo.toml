@@ -9,12 +9,10 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 quantity = "0.5"
-feos-core = { git = "https://github.com/feos-org/feos-core" }
+feos-core = "0.2"
 ndarray = "0.15"
 petgraph = "0.6"
-num-traits = "0.2"
-num-dual = "0.5"
-feos-pcsaft = { git = "https://github.com/feos-org/feos-pcsaft" }
+feos-pcsaft = { path = "../feos-pcsaft" }
 feos-gc-pcsaft = { path = "../feos-gc-pcsaft" }
 serde = "1.0"
 serde_derive = "1.0"
@@ -28,7 +26,8 @@ optional = true
 
 [dev-dependencies]
 itertools = "0.10"
+approx = "0.5"
 
 [features]
-default = []
+default = ["python"]
 python = ["pyo3", "numpy", "feos-core/python"]

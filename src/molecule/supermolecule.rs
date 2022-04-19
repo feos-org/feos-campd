@@ -1,9 +1,9 @@
 use feos_core::parameter::{ChemicalRecord, Identifier};
-use num_dual::{StaticMat, StaticVec};
-use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::iter;
+
+use super::polynomial::{Polynomial, Polynomial2};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FunctionalGroup {
@@ -128,9 +128,9 @@ impl SuperAlkyl {
         size: usize,
         parent: f64,
         y: &mut I,
-        segments: &mut StaticVec<f64, 4>,
-        bonds: &mut StaticMat<f64, 4, 4>,
-    ) -> StaticVec<f64, 4> {
+        segments: &mut Polynomial<4>,
+        bonds: &mut Polynomial2<4, 4>,
+    ) -> Polynomial<4> {
         let value = y.next().unwrap() * parent;
 
         let children: Vec<_> = (1..=3)
@@ -375,8 +375,8 @@ impl SuperMolecule {
             .map(|_| y_iter.next().unwrap())
             .collect();
 
-        let mut c_segments = StaticVec::zero();
-        let mut c_bonds = StaticMat::zero();
+        let mut c_segments = Polynomial::zero();
+        let mut c_bonds = Polynomial2::zero();
         let s = SuperAlkyl::build(
             self.size - self.functional_group_atoms(),
             1.0,
@@ -386,7 +386,7 @@ impl SuperMolecule {
         );
 
         let identifier = Identifier::new("", Some("SuperMolecule"), None, None, None, None);
-        let cs = [">C<", ">CH", "CH2", "CH3"];
+        let cs = ["CH3", "CH2", ">CH", ">C<"];
 
         let mut segments: HashMap<_, _> = cs
             .iter()
@@ -401,14 +401,7 @@ impl SuperMolecule {
             .for_each(|(s, y)| *segments.entry(s.groups[0].clone()).or_insert(0.0) += y);
 
         let mut bonds = HashMap::new();
-        for (i, c1) in cs.iter().enumerate() {
-            for (j, c2) in cs.iter().enumerate() {
-                if c_bonds[(i, j)] > 0.0 {
-                    *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) +=
-                        c_bonds[(i, j)];
-                }
-            }
-        }
+        fill_bond_map(cs, cs, &c_bonds, &mut bonds);
         s.iter().zip(cs.iter()).for_each(|(g, c)| {
             if *g > 0.0 {
                 self.functional_groups
@@ -431,13 +424,13 @@ impl SuperMolecule {
         let y_iter = &mut y.into_iter();
         y_iter.next();
 
-        let cs = [">C<", ">CH", "CH2", "CH3"];
-        let mut c_segments = StaticVec::zero();
-        let mut c_bonds = StaticMat::zero();
+        let cs = ["CH3", "CH2", ">CH", ">C<"];
+        let mut c_segments = Polynomial::zero();
+        let mut c_bonds = Polynomial2::zero();
 
         // formaldehyde is approximated by CH=O for the relaxation.
-        let cds = [">C=O", "CH=O", "CH=O"];
-        let mut cd_bonds: StaticMat<_, 4, 3> = StaticMat::zero();
+        let cds = ["CH=O", "CH=O", ">C=O"];
+        let mut cd_bonds: Polynomial2<4, 3> = Polynomial2::zero();
 
         let alkyls = self
             .alkyl_tails()
@@ -458,22 +451,8 @@ impl SuperMolecule {
             .collect();
 
         let mut bonds = HashMap::new();
-        for (i, c1) in cs.iter().enumerate() {
-            for (j, c2) in cs.iter().enumerate() {
-                if c_bonds[(i, j)] > 0.0 {
-                    *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) +=
-                        c_bonds[(i, j)];
-                }
-            }
-        }
-        for (i, c1) in cs.iter().enumerate() {
-            for (j, c2) in cds.iter().enumerate() {
-                if cd_bonds[(i, j)] > 0.0 {
-                    *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) +=
-                        cd_bonds[(i, j)];
-                }
-            }
-        }
+        fill_bond_map(cs, cs, &c_bonds, &mut bonds);
+        fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
 
         ChemicalRecord::new_count(identifier, segments, Some(bonds))
     }
@@ -482,13 +461,13 @@ impl SuperMolecule {
         let y_iter = &mut y.into_iter();
         y_iter.next();
 
-        let cs = [">C<", ">CH", "CH2", "CH3"];
-        let mut c_segments = StaticVec::zero();
-        let mut c_bonds = StaticMat::zero();
+        let cs = ["CH3", "CH2", ">CH", ">C<"];
+        let mut c_segments = Polynomial::zero();
+        let mut c_bonds = Polynomial2::zero();
 
-        let cds = ["=C<", "=CH", "=CH2"];
+        let cds = ["=CH2", "=CH", "=C<"];
         let mut cd_segments = Vec::new();
-        let mut cd_bonds: StaticMat<_, 4, 3> = StaticMat::zero();
+        let mut cd_bonds: Polynomial2<4, 3> = Polynomial2::zero();
 
         let s = self.alkyl_tails();
         for tails in [[0, 1], [2, 3]] {
@@ -516,31 +495,10 @@ impl SuperMolecule {
             .collect();
 
         let mut bonds = HashMap::new();
-        for (i, c1) in cs.iter().enumerate() {
-            for (j, c2) in cs.iter().enumerate() {
-                if c_bonds[(i, j)] > 0.0 {
-                    *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) +=
-                        c_bonds[(i, j)];
-                }
-            }
-        }
-        for (i, c1) in cs.iter().enumerate() {
-            for (j, c2) in cds.iter().enumerate() {
-                if cd_bonds[(i, j)] > 0.0 {
-                    *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) +=
-                        cd_bonds[(i, j)];
-                }
-            }
-        }
-        let dd_bonds = cd_segments[0].transpose_matmul(&cd_segments[1]);
-        for (i, c1) in cds.iter().enumerate() {
-            for (j, c2) in cds.iter().enumerate() {
-                if dd_bonds[(i, j)] > 0.0 {
-                    *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) +=
-                        dd_bonds[(i, j)];
-                }
-            }
-        }
+        fill_bond_map(cs, cs, &c_bonds, &mut bonds);
+        fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
+        let dd_bonds = cd_segments[0].outer_product(cd_segments[1]);
+        fill_bond_map(cds, cds, &dd_bonds, &mut bonds);
 
         ChemicalRecord::new_count(identifier, segments, Some(bonds))
     }
@@ -567,94 +525,41 @@ fn merge_symmetry_constraints(
 }
 
 fn calculate_bonds<const M: usize, const N: usize>(
-    children: Vec<StaticVec<f64, N>>,
-    bonds: &mut StaticMat<f64, N, M>,
-) -> StaticVec<f64, M> {
-    let mut res = StaticVec::zero();
-    match children.len() {
-        0 => res[M - 1] = 1.0,
-        1 => {
-            let c1 = children[0].sum();
-            res[M - 2] = c1;
-            res[M - 1] = 1.0 - c1;
-            for (i, &c) in children[0].iter().enumerate() {
-                bonds[(i, M - 2)] += c;
+    children: Vec<Polynomial<N>>,
+    bonds: &mut Polynomial2<N, M>,
+) -> Polynomial<M> {
+    for (i, ci) in children.iter().enumerate() {
+        *bonds += ci.outer_product(
+            children
+                .iter()
+                .enumerate()
+                .filter_map(|(j, cj)| (j != i).then(|| Polynomial::new(cj.sum())))
+                .product::<Polynomial<M>>()
+                * Polynomial::new(1.0),
+        );
+    }
+    children.iter().map(|p| Polynomial::new(p.sum())).product()
+}
+
+fn fill_bond_map<const M: usize, const N: usize>(
+    seg1: [&str; M],
+    seg2: [&str; N],
+    bond_poly: &Polynomial2<M, N>,
+    bonds: &mut HashMap<[String; 2], f64>,
+) {
+    for (i, c1) in seg1.iter().enumerate() {
+        for (j, c2) in seg2.iter().enumerate() {
+            if bond_poly[(i, j)] > 0.0 {
+                *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) += bond_poly[(i, j)];
             }
         }
-        2 => {
-            let c1 = children[0].sum();
-            let c2 = children[1].sum();
-            res[M - 3] = c1 * c2;
-            res[M - 2] = c1 * (1.0 - c2) + (1.0 - c1) * c2;
-            res[M - 1] = (1.0 - c1) * (1.0 - c2);
-            for (i, &g1) in children[0].iter().enumerate() {
-                for (j, &g2) in children[1].iter().enumerate() {
-                    bonds[(i, M - 3)] += g1 * g2;
-                    bonds[(j, M - 3)] += g1 * g2;
-                }
-            }
-            for (i, &g1) in children[0].iter().enumerate() {
-                bonds[(i, M - 2)] += g1 * (1.0 - c2);
-            }
-            for (j, &g2) in children[1].iter().enumerate() {
-                bonds[(j, M - 2)] += (1.0 - c1) * g2;
-            }
-        }
-        3 => {
-            let c1 = children[0].sum();
-            let c2 = children[1].sum();
-            let c3 = children[2].sum();
-            res[M - 4] = c1 * c2 * c3;
-            res[M - 3] = (1.0 - c1) * c2 * c3 + c1 * (1.0 - c2) * c3 + c1 * c2 * (1.0 - c3);
-            res[M - 2] = (1.0 - c1) * (1.0 - c2) * c3
-                + (1.0 - c1) * c2 * (1.0 - c3)
-                + c1 * (1.0 - c2) * (1.0 - c3);
-            res[M - 1] = (1.0 - c1) * (1.0 - c2) * (1.0 - c3);
-            for (i, &g1) in children[0].iter().enumerate() {
-                for (j, &g2) in children[1].iter().enumerate() {
-                    for (k, &g3) in children[2].iter().enumerate() {
-                        bonds[(i, M - 4)] += g1 * g2 * g3;
-                        bonds[(j, M - 4)] += g1 * g2 * g3;
-                        bonds[(k, M - 4)] += g1 * g2 * g3;
-                    }
-                }
-            }
-            for (i, &g1) in children[0].iter().enumerate() {
-                for (j, &g2) in children[1].iter().enumerate() {
-                    bonds[(i, M - 3)] += g1 * g2 * (1.0 - c3);
-                    bonds[(j, M - 3)] += g1 * g2 * (1.0 - c3);
-                }
-            }
-            for (i, &g1) in children[0].iter().enumerate() {
-                for (k, &g3) in children[2].iter().enumerate() {
-                    bonds[(i, M - 3)] += g1 * (1.0 - c2) * g3;
-                    bonds[(k, M - 3)] += g1 * (1.0 - c2) * g3;
-                }
-            }
-            for (j, &g2) in children[1].iter().enumerate() {
-                for (k, &g3) in children[2].iter().enumerate() {
-                    bonds[(j, M - 3)] += (1.0 - c1) * g2 * g3;
-                    bonds[(k, M - 3)] += (1.0 - c1) * g2 * g3;
-                }
-            }
-            for (i, &g1) in children[0].iter().enumerate() {
-                bonds[(i, M - 2)] += g1 * (1.0 - c2) * (1.0 - c3);
-            }
-            for (j, &g2) in children[1].iter().enumerate() {
-                bonds[(j, M - 2)] += (1.0 - c1) * g2 * (1.0 - c3);
-            }
-            for (k, &g3) in children[2].iter().enumerate() {
-                bonds[(k, M - 2)] += (1.0 - c1) * (1.0 - c2) * g3;
-            }
-        }
-        _ => unreachable!(),
-    };
-    res
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use approx::assert_relative_eq;
     use itertools::Itertools;
 
     fn isomers(molecule: SuperMolecule) -> usize {
@@ -730,5 +635,72 @@ mod test {
         assert_eq!(isomers(SuperMolecule::ketone(4)), 3);
         assert_eq!(isomers(SuperMolecule::ketone(5)), 6);
         assert_eq!(isomers(SuperMolecule::ketone(6)), 13);
+    }
+
+    #[test]
+    fn test_build() {
+        let cr = SuperMolecule::alcohol(4).build(vec![1.0, 0.9, 0.8, 0.5, 0.3]);
+        let (segments, bonds) = cr.segment_and_bond_count();
+        println!("{segments:?}\n{bonds:?}");
+        assert_relative_eq!(segments["CH3"], 1.27476);
+        assert_relative_eq!(segments["CH2"], 0.80028);
+        assert_relative_eq!(segments[">CH"], 0.17496);
+        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 0.069984);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 0.318816);
+        assert_relative_eq!(bonds[&["CH2".to_string(), "CH2".to_string()]], 0.189216);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 0.771984);
+    }
+
+    #[test]
+    fn test_alcohol() {
+        let cr = SuperMolecule::alcohol(5).build(vec![1.0; 8]);
+        let (segments, bonds) = cr.segment_and_bond_count();
+        println!("{cr}");
+        assert_eq!(segments["CH3"], 4.0);
+        assert_eq!(segments["CH2"], 1.0);
+        assert_eq!(segments[">CH"], 1.0);
+        assert_eq!(segments[">C<"], 1.0);
+        assert_eq!(segments["OH"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">C<".to_string()]], 2.0);
+        assert_relative_eq!(bonds[&[">CH".to_string(), ">C<".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["OH".to_string(), ">C<".to_string()]], 1.0);
+    }
+
+    #[test]
+    fn test_ketone() {
+        let cr = SuperMolecule::ketone(5).build(vec![1.0; 6]);
+        let (segments, bonds) = cr.segment_and_bond_count();
+        println!("{cr}");
+        assert_eq!(segments["CH3"], 3.0);
+        assert_eq!(segments["CH2"], 1.0);
+        assert_eq!(segments[">CH"], 1.0);
+        assert_eq!(segments[">C=O"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&[">CH".to_string(), ">C=O".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">C=O".to_string()]], 1.0);
+    }
+
+    #[test]
+    fn test_alkene() {
+        let cr = SuperMolecule::alkene(5).build(vec![1.0; 7]);
+        let (segments, bonds) = cr.segment_and_bond_count();
+        println!("{cr}");
+        assert_eq!(segments["CH3"], 4.0);
+        assert_eq!(segments["CH2"], 1.0);
+        assert_eq!(segments[">CH"], 1.0);
+        assert_eq!(segments["=C<"], 1.0);
+        assert_eq!(segments["=CH"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&[">CH".to_string(), "=C<".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "=C<".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "=CH".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["=C<".to_string(), "=CH".to_string()]], 1.0);
     }
 }

@@ -1,6 +1,7 @@
 use feos_core::parameter::{ChemicalRecord, Identifier};
 use serde::{Deserialize, Serialize};
 
+mod polynomial;
 mod supermolecule;
 pub use supermolecule::SuperMolecule;
 

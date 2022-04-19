@@ -3,6 +3,7 @@ from .feos_campd import (
     SuperMolecule,
     OptimizationResult,
     OptimizationProblem,
+    MetaOptimizationProblem,
     OrganicRankineCycle,
     OrganicRankineCycleSuperStructure,
     FixedMolecule,
@@ -113,46 +114,95 @@ OrganicRankineCycle.setup_knitro = setup_knitro_process
 OrganicRankineCycleSuperStructure.setup_knitro = setup_knitro_process
 
 
-def solve_knitro(self, x0, n_solutions=1, options=None):
-    n_y = self.molecule.variables
+def solve_knitro_once(
+    molecule,
+    property_model=None,
+    process=None,
+    solutions=[],
+    x0=None,
+    options=None,
+    name=None,
+):
+    n_y = molecule.variables
 
     def callback(kc, cb, evalRequest, evalResult, userParams):
-        if self.process is None:
+        if process is None:
             evalResult.obj = 0
             return 0
         y = evalRequest.x[:n_y]
         x = evalRequest.x[n_y:]
-        eos = self.property_model.build_eos(self.molecule.build(y))
+        eos = property_model.build_eos(molecule.build(y))
         try:
-            _, target, constraints = self.process.solve(eos, x)
+            _, target, constraints = process.solve(eos, x)
             evalResult.obj = target
             evalResult.c = constraints
         except:
             evalResult.obj = 0
-            evalResult.c = [-1] * len(self.process.constraints)
+            evalResult.c = [-1] * len(process.constraints)
         return 0
 
-    for _ in range(n_solutions):
-        kc = KN_new()
+    kc = KN_new()
 
-        self.molecule.setup_knitro(kc, self.solutions)
-        if self.process is None:
-            indexCons = []
-        else:
-            indexCons = self.process.setup_knitro(kc, x0)
-        KN_add_eval_callback(kc, True, indexCons, callback)
-        if options is not None:
-            KN_load_param_file(kc, options)
-        if KN_solve(kc) != 0:
-            return
-        _, t, x, _ = KN_get_solution(kc)
-        y = [int(i) for i in x[:n_y]]
-        x = x[n_y:]
+    molecule.setup_knitro(kc, solutions)
+    if process is None:
+        indexCons = []
+    else:
+        indexCons = process.setup_knitro(kc, x0)
+    KN_add_eval_callback(kc, True, indexCons, callback)
+    if options is not None:
+        KN_load_param_file(kc, options)
+    if KN_solve(kc) != 0:
+        return
+    _, t, x, _ = KN_get_solution(kc)
+    y = [int(i) for i in x[:n_y]]
+    x = x[n_y:]
+    if name is None:
         print(t, y, x)
-        self.add_solution(OptimizationResult(t, y, x))
+    else:
+        print(f"{name:12} {t:.5f}", y, x)
+    return OptimizationResult(t, y, x)
+
+
+def solve_knitro(self, x0, n_solutions=1, options=None):
+    for _ in range(n_solutions):
+        result = solve_knitro_once(
+            self.molecule,
+            self.property_model,
+            self.process,
+            self.solutions,
+            x0,
+            options,
+        )
+        self.add_solution(result)
 
 
 OptimizationProblem.solve_knitro = solve_knitro
+
+
+def solve_knitro_meta(self, x0, n_solutions=1, options=None):
+    candidates = {}
+    for name, molecule in self.molecules.items():
+        candidates[name] = solve_knitro_once(
+            molecule, self.property_model, self.process, [], x0, options, name
+        )
+    self.initialize_candidates(candidates)
+
+    for _ in range(n_solutions):
+        chemical = self.best_candidate()
+        solutions = self.candidates[chemical]
+        result = solve_knitro_once(
+            self.molecules[chemical],
+            self.property_model,
+            self.process,
+            solutions,
+            x0,
+            options,
+            chemical,
+        )
+        self.update_candidates(chemical, result)
+
+
+MetaOptimizationProblem.solve_knitro = solve_knitro_meta
 
 
 def _repr_png_(self):

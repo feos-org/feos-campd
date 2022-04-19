@@ -1,4 +1,7 @@
-use super::{MolecularRepresentation, OptimizationProblem, OptimizationResult, ProcessModel};
+use super::{
+    MetaOptimizationProblem, MolecularRepresentation, OptimizationProblem, OptimizationResult,
+    ProcessModel,
+};
 use feos_core::parameter::ParameterError;
 use feos_core::python::parameter::{PyChemicalRecord, PyIdentifier};
 use feos_core::{impl_json_handling, Contributions, Verbosity};
@@ -6,6 +9,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::wrap_pymodule;
 use quantity::python::__PYO3_PYMODULE_DEF_QUANTITY;
+use std::collections::HashMap;
 
 mod molecule;
 mod orc;
@@ -111,6 +115,109 @@ impl PyOptimizationProblem {
 
 impl_json_handling!(PyOptimizationProblem);
 
+#[pyclass(name = "MetaOptimizationProblem")]
+pub struct PyMetaOptimizationProblem(MetaOptimizationProblem);
+
+#[pymethods]
+impl PyMetaOptimizationProblem {
+    #[new]
+    fn new(
+        molecules: HashMap<String, PySuperMolecule>,
+        property_model: Option<PyPropertyModel>,
+        process: Option<&PyAny>,
+    ) -> PyResult<Self> {
+        let molecules = molecules.into_iter().map(|(s, m)| (s, m.0)).collect();
+        let process = process
+            .map(|process| {
+                if let Ok(process) = process.extract::<PyOrganicRankineCycle>() {
+                    Ok(ProcessModel::OrganicRankineCycle(process.0))
+                } else if let Ok(process) = process.extract::<PyOrganicRankineCycleSuperStructure>()
+                {
+                    Ok(ProcessModel::OrganicRankineCycleSuperStructure(process.0))
+                } else {
+                    Err(PyValueError::new_err(
+                        "Parameter `process` has an invalid type.",
+                    ))
+                }
+            })
+            .transpose()?;
+        Ok(Self(MetaOptimizationProblem::new(
+            molecules,
+            property_model.map(|p| p.0),
+            process,
+        )))
+    }
+
+    fn initialize_candidates(&mut self, candidates: HashMap<String, PyOptimizationResult>) {
+        let candidates = candidates.into_iter().map(|(s, r)| (s, r.0)).collect();
+        self.0.initialize_candidates(candidates)
+    }
+
+    fn best_candidate(&self) -> String {
+        self.0.best_candidate()
+    }
+
+    pub fn update_candidates(&mut self, chemical: String, solution: PyOptimizationResult) {
+        self.0.update_candidates(chemical, solution.0);
+    }
+
+    #[getter]
+    fn get_molecules(&self) -> HashMap<String, PySuperMolecule> {
+        self.0
+            .molecules
+            .iter()
+            .map(|(s, m)| (s.clone(), PySuperMolecule(m.clone())))
+            .collect()
+    }
+
+    #[getter]
+    fn get_property_model(&self) -> Option<PyPropertyModel> {
+        self.0.property_model.clone().map(PyPropertyModel)
+    }
+
+    #[getter]
+    fn get_process(&self, py: Python) -> Option<PyObject> {
+        self.0.process.clone().map(|process| match process {
+            ProcessModel::OrganicRankineCycle(process) => {
+                PyOrganicRankineCycle(process).into_py(py)
+            }
+            ProcessModel::OrganicRankineCycleSuperStructure(process) => {
+                PyOrganicRankineCycleSuperStructure(process).into_py(py)
+            }
+        })
+    }
+
+    #[getter]
+    fn get_solutions(&self) -> Vec<(String, PyOptimizationResult)> {
+        self.0
+            .solutions
+            .iter()
+            .map(|(s, r)| (s.clone(), PyOptimizationResult(r.clone())))
+            .collect()
+    }
+
+    #[getter]
+    fn get_candidates(&self) -> HashMap<String, Vec<PyOptimizationResult>> {
+        self.0
+            .candidates
+            .clone()
+            .into_iter()
+            .map(|(s, r)| (s, r.into_iter().map(PyOptimizationResult).collect()))
+            .collect()
+    }
+
+    #[staticmethod]
+    fn from_json(file: &str) -> Result<Self, ParameterError> {
+        Ok(Self(MetaOptimizationProblem::from_json(file)?))
+    }
+
+    fn to_json(&self, file: &str) -> Result<(), ParameterError> {
+        self.0.to_json(file)
+    }
+}
+
+impl_json_handling!(PyMetaOptimizationProblem);
+
 #[pyclass(name = "OptimizationResult")]
 #[derive(Clone)]
 pub struct PyOptimizationResult(OptimizationResult);
@@ -145,6 +252,7 @@ impl PyOptimizationResult {
 #[pymodule]
 pub fn feos_campd(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyOptimizationProblem>()?;
+    m.add_class::<PyMetaOptimizationProblem>()?;
     m.add_class::<PyOptimizationResult>()?;
     m.add_class::<PyOrganicRankineCycle>()?;
     m.add_class::<PyOrganicRankineCycleSuperStructure>()?;

@@ -295,7 +295,7 @@ mod test {
         )
         .unwrap();
         let eos = Rc::new(PcSaft::new(Rc::new(params)));
-        orc.solve(&eos, &[1.15, -4.5, -1.2, 0.8, 2.0, 0.5]).unwrap();
+        orc.solve(&eos, &[1.15, -4.5, -1.2, 0.1, 0.1, 0.5]).unwrap();
         // let u1 = Utility::ConstantTemperature;
         // let u2 = Utility::HeatCapacityRate(6.0 * WATT / KELVIN);
         // let u3 = Utility::OutletTemperature(25.0 * CELSIUS);
