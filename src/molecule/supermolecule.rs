@@ -126,20 +126,18 @@ impl SuperAlkyl {
 
     fn build<I: Iterator<Item = f64>>(
         size: usize,
-        parent: f64,
         y: &mut I,
         segments: &mut Polynomial<4>,
         bonds: &mut Polynomial2<4, 4>,
     ) -> Polynomial<4> {
-        let value = y.next().unwrap() * parent;
+        let value = y.next().unwrap();
 
         let children: Vec<_> = (1..=3)
             .map(|k| (size - 1) / k)
             .filter(|s| *s > 0)
-            .map(|s| Self::build(s, value, y, segments, bonds))
+            .map(|s| Self::build(s, y, segments, bonds))
             .collect();
-        let mut res = calculate_bonds(children, bonds);
-        res *= value;
+        let res = calculate_bonds(children, bonds) * value;
         *segments += res;
 
         res
@@ -379,7 +377,6 @@ impl SuperMolecule {
         let mut c_bonds = Polynomial2::zero();
         let s = SuperAlkyl::build(
             self.size - self.functional_group_atoms(),
-            1.0,
             y_iter,
             &mut c_segments,
             &mut c_bonds,
@@ -436,7 +433,7 @@ impl SuperMolecule {
             .alkyl_tails()
             .iter()
             .filter(|&&s| s > 0)
-            .map(|&s| SuperAlkyl::build(s, 1.0, y_iter, &mut c_segments, &mut c_bonds))
+            .map(|&s| SuperAlkyl::build(s, y_iter, &mut c_segments, &mut c_bonds))
             .collect();
         let cd_segments = calculate_bonds(alkyls, &mut cd_bonds);
 
@@ -474,7 +471,7 @@ impl SuperMolecule {
             let alkyls = tails
                 .iter()
                 .filter(|&&i| s[i] > 0)
-                .map(|&i| SuperAlkyl::build(s[i], 1.0, y_iter, &mut c_segments, &mut c_bonds))
+                .map(|&i| SuperAlkyl::build(s[i], y_iter, &mut c_segments, &mut c_bonds))
                 .collect();
             cd_segments.push(calculate_bonds(alkyls, &mut cd_bonds));
         }
@@ -642,13 +639,13 @@ mod test {
         let cr = SuperMolecule::alcohol(4).build(vec![1.0, 0.9, 0.8, 0.5, 0.3]);
         let (segments, bonds) = cr.segment_and_bond_count();
         println!("{segments:?}\n{bonds:?}");
-        assert_relative_eq!(segments["CH3"], 1.27476);
-        assert_relative_eq!(segments["CH2"], 0.80028);
-        assert_relative_eq!(segments[">CH"], 0.17496);
-        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 0.069984);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 0.318816);
-        assert_relative_eq!(bonds[&["CH2".to_string(), "CH2".to_string()]], 0.189216);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 0.771984);
+        assert_relative_eq!(segments["CH3"], 1.326);
+        assert_relative_eq!(segments["CH2"], 0.958);
+        assert_relative_eq!(segments[">CH"], 0.216);
+        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 0.12);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 0.36);
+        assert_relative_eq!(bonds[&["CH2".to_string(), "CH2".to_string()]], 0.28);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 0.84);
     }
 
     #[test]
