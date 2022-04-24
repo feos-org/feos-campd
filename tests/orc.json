@@ -1,12 +1,11 @@
 {
     "heat_source": {
-        "temperature [°C]": 300.0,
+        "temperature [°C]": 120.0,
         "specification": {
-            "heat_capacity_rate [kW/K]": 300.0
+            "heat_capacity_rate [kW/K]": 277.982
         },
         "min_approach_temperature [K]": 10.0
     },
-    "min_heat_source_outlet_temperature [°C]": 200.0,
     "isentropic_turbine_efficiency": 0.8,
     "isentropic_pump_efficiency": 0.6,
     "min_abs_pressure [bar]": 1.0,
@@ -14,10 +13,8 @@
     "max_abs_pressure [bar]": 50.0,
     "max_red_pressure": 0.8,
     "cooling": {
-        "temperature [°C]": 100.0,
+        "temperature [°C]": 20.0,
         "specification": "constant",
         "min_approach_temperature [K]": -0.0
-    },
-    "min_temperature_difference_recuperator [K]": 10,
-    "min_heat_transfer_rate_recuperator [kW]": 500.0
+    }
 }

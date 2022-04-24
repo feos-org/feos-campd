@@ -1,33 +1,28 @@
 use feos_core::parameter::{ChemicalRecord, Identifier};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 mod polynomial;
 mod supermolecule;
 pub use supermolecule::SuperMolecule;
 
-#[derive(Clone, Serialize, Deserialize)]
-pub enum MolecularRepresentation {
-    SuperMolecule(SuperMolecule),
-    FixedMolecule(FixedMolecule),
+pub trait MolecularRepresentation {
+    fn build(&self, y: Vec<f64>) -> ChemicalRecord;
+
+    fn variables(&self) -> usize;
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct FixedMolecule {
-    components: Vec<String>,
-}
+pub struct FixedMolecule(pub String);
 
-impl FixedMolecule {
-    pub fn new(components: Vec<String>) -> Self {
-        Self { components }
+impl MolecularRepresentation for FixedMolecule {
+    fn variables(&self) -> usize {
+        0
     }
 
-    pub fn variables(&self) -> usize {
-        self.components.len()
-    }
-
-    pub fn build(&self, y: Vec<f64>) -> ChemicalRecord {
-        let segments = self.components.iter().cloned().zip(y.into_iter()).collect();
-        let identifier = Identifier::new("", Some("HomoGc"), None, None, None, None);
+    fn build(&self, _: Vec<f64>) -> ChemicalRecord {
+        let segments = HashMap::from([(self.0.clone(), 1.0)]);
+        let identifier = Identifier::new("", Some(&self.0), None, None, None, None);
         ChemicalRecord::new_count(identifier, segments, None)
     }
 }

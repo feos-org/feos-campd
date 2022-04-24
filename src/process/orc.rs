@@ -1,4 +1,4 @@
-use super::{Isobar, Process, ProcessState, Utility};
+use super::{Isobar, Process, ProcessModel, ProcessState, Utility};
 use feos_core::parameter::ParameterError;
 use feos_core::{Contributions, EosResult, EquationOfState, MolarWeight, State};
 use quantity::si::*;
@@ -96,8 +96,8 @@ impl OrganicRankineCycle {
     }
 }
 
-impl OrganicRankineCycle {
-    pub fn variables(&self) -> Vec<[Option<f64>; 2]> {
+impl ProcessModel for OrganicRankineCycle {
+    fn variables(&self) -> Vec<[Option<f64>; 2]> {
         vec![
             [Some(0.0), None],
             [
@@ -112,11 +112,7 @@ impl OrganicRankineCycle {
         ]
     }
 
-    pub fn binary_variables(&self) -> usize {
-        0
-    }
-
-    pub fn constraints(&self) -> Vec<[Option<f64>; 3]> {
+    fn constraints(&self) -> Vec<[Option<f64>; 3]> {
         vec![
             // Pinch constraints evaporator
             [Some(0.0), None, None],
@@ -142,7 +138,7 @@ impl OrganicRankineCycle {
         ]
     }
 
-    pub fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
+    fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
         &self,
         eos: &Rc<E>,
         x: &[f64],

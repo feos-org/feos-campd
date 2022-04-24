@@ -6,54 +6,26 @@ use std::ops::Index;
 use std::rc::Rc;
 
 mod equipment;
-// mod heat_pump;
 mod orc;
-mod orc_superstructure;
 mod process_state;
 pub use equipment::Equipment;
-// pub use heat_pump::HeatPump;
 pub use orc::OrganicRankineCycle;
-pub use orc_superstructure::OrganicRankineCycleSuperStructure;
 pub use process_state::{Isobar, ProcessState};
 
-#[derive(Clone, Serialize, Deserialize)]
-pub enum ProcessModel {
-    OrganicRankineCycle(OrganicRankineCycle),
-    OrganicRankineCycleSuperStructure(OrganicRankineCycleSuperStructure),
-}
+pub trait ProcessModel {
+    fn variables(&self) -> Vec<[Option<f64>; 2]>;
 
-impl ProcessModel {
-    pub fn variables(&self) -> Vec<[Option<f64>; 2]> {
-        match self {
-            Self::OrganicRankineCycle(process) => process.variables(),
-            Self::OrganicRankineCycleSuperStructure(process) => process.variables(),
-        }
+    fn binary_variables(&self) -> usize {
+        0
     }
 
-    pub fn binary_variables(&self) -> usize {
-        match self {
-            Self::OrganicRankineCycle(process) => process.binary_variables(),
-            Self::OrganicRankineCycleSuperStructure(process) => process.binary_variables(),
-        }
-    }
+    fn constraints(&self) -> Vec<[Option<f64>; 3]>;
 
-    pub fn constraints(&self) -> Vec<[Option<f64>; 3]> {
-        match self {
-            Self::OrganicRankineCycle(process) => process.constraints(),
-            Self::OrganicRankineCycleSuperStructure(process) => process.constraints(),
-        }
-    }
-
-    pub fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
+    fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
         &self,
         eos: &Rc<E>,
         x: &[f64],
-    ) -> EosResult<(Process<E>, f64, Vec<f64>)> {
-        match self {
-            Self::OrganicRankineCycle(process) => process.solve(eos, x),
-            Self::OrganicRankineCycleSuperStructure(process) => process.solve(eos, x),
-        }
-    }
+    ) -> EosResult<(Process<E>, f64, Vec<f64>)>;
 }
 
 pub type StatePoint = NodeIndex;
@@ -93,6 +65,10 @@ impl<E> Process<E> {
     pub fn add_connection(&mut self, feed: StatePoint, outlet: StatePoint, step: ProcessStep) {
         self.graph.add_edge(feed, outlet, step);
     }
+
+    pub fn utility_temperature(&self, index: StatePoint) -> Option<SINumber> {
+        self.graph[index].utility_temperature.map(|[t, _]| t)
+    }
 }
 
 impl<E> Index<StatePoint> for Process<E> {
@@ -126,36 +102,6 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
             t2 = t1;
         }
     }
-
-    // pub fn add_utility_heat_sink(
-    //     &mut self,
-    //     equipment: &Equipment,
-    //     temperature_in: SINumber,
-    //     temperature_out: SINumber,
-    //     power: SINumber,
-    //     min_approach_temperature: SINumber,
-    // ) {
-    //     let states = &equipment.states;
-    //     let out = *states.last().unwrap();
-    //     let inlet = *states.first().unwrap();
-    //     let mut h2 = self[out].specific_enthalpy();
-    //     let mut t2 = temperature_in;
-    //     // Calculate necessary mass flow rate
-    //     let mwf = power / (self[inlet].specific_enthalpy() - self[out].specific_enthalpy());
-
-    //     let mcp_utility = power / (temperature_out - temperature_in);
-    //     self.graph[out].utility_temperature = Some([t2, min_approach_temperature]);
-    //     for (&s1, &s2) in states.iter().rev().skip(1).zip(states.iter().rev()) {
-    //         let index = self.graph.find_edge(s1, s2).unwrap();
-    //         let h1 = self[s1].specific_enthalpy();
-    //         let mass_flow_rate_wf = self.graph[index].mass_flow_rate.unwrap_or(mwf);
-    //         let t1 = t2 - (h2 - h1) / (mcp_utility) * mass_flow_rate_wf;
-    //         self.graph[s1].utility_temperature = Some([t1, min_approach_temperature]);
-    //         // self.graph[index].utility = Some(mcp_utility);
-    //         h2 = h1;
-    //         t2 = t1;
-    //     }
-    // }
 
     pub fn net_power(&self) -> Option<SINumber> {
         self.graph
@@ -268,7 +214,7 @@ pub struct UtilityJSON {
 #[serde(into = "UtilityJSON")]
 #[serde(from = "UtilityJSON")]
 pub struct Utility {
-    temperature: SINumber,
+    pub temperature: SINumber,
     specification: UtilitySpecification,
     min_approach_temperature: SINumber,
 }

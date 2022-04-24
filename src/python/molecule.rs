@@ -1,4 +1,4 @@
-use crate::molecule::{FixedMolecule, SuperMolecule};
+use crate::molecule::{FixedMolecule, MolecularRepresentation, SuperMolecule};
 use feos_core::python::parameter::PyChemicalRecord;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -60,26 +60,6 @@ impl PySuperMolecule {
     #[getter]
     fn get_variables(&self) -> usize {
         self.0.variables()
-    }
-
-    #[getter]
-    fn get_size_constraint(&self) -> (Vec<usize>, usize) {
-        self.0.size_constraint()
-    }
-
-    #[getter]
-    fn get_functional_group_constraint(&self) -> Vec<usize> {
-        self.0.functional_group_constraint()
-    }
-
-    #[getter]
-    fn get_bond_constraints(&self) -> Vec<(usize, usize)> {
-        self.0.bond_constraints()
-    }
-
-    #[getter]
-    fn get_symmetry_constraints(&self) -> Vec<(Vec<usize>, Vec<isize>)> {
-        self.0.symmetry_constraints()
     }
 
     fn build(&self, y: Vec<f64>) -> PyChemicalRecord {

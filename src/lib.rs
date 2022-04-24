@@ -9,37 +9,28 @@ use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
 mod molecule;
-mod process;
+pub mod process;
 mod property;
-pub use molecule::FixedMolecule;
-use molecule::{MolecularRepresentation, SuperMolecule};
-pub use process::{
-    Equipment, OrganicRankineCycle, OrganicRankineCycleSuperStructure, Process, ProcessModel,
-    ProcessPlot, ProcessPoint, ProcessState, StatePoint, Utility, UtilitySpecification,
-};
+pub use molecule::{FixedMolecule, MolecularRepresentation, SuperMolecule};
+use process::ProcessModel;
 pub use property::{EquationsOfState, PropertyModel};
 
 #[cfg(feature = "python")]
 mod python;
 
+#[cfg(feature = "knitro_rs")]
+pub mod knitro;
+
 #[derive(Serialize, Deserialize)]
-pub struct OptimizationProblem {
-    pub molecule: MolecularRepresentation,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub property_model: Option<PropertyModel>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub process: Option<ProcessModel>,
+pub struct OptimizationProblem<M, P> {
+    pub molecule: M,
+    pub property_model: PropertyModel,
+    pub process: P,
     pub solutions: Vec<OptimizationResult>,
 }
 
-impl OptimizationProblem {
-    pub fn new(
-        molecule: MolecularRepresentation,
-        property_model: Option<PropertyModel>,
-        process: Option<ProcessModel>,
-    ) -> Self {
+impl<M: MolecularRepresentation, P: ProcessModel> OptimizationProblem<M, P> {
+    pub fn new(molecule: M, property_model: PropertyModel, process: P) -> Self {
         Self {
             molecule,
             property_model,
@@ -52,11 +43,19 @@ impl OptimizationProblem {
         self.solutions.push(solutions);
     }
 
-    pub fn from_json<P: AsRef<Path>>(file: P) -> Result<Self, ParameterError> {
+    pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
+    where
+        for<'a> P: Deserialize<'a> + Default,
+        for<'a> M: Deserialize<'a> + Default,
+    {
         Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
     }
 
-    pub fn to_json<P: AsRef<Path>>(&self, file: P) -> Result<(), ParameterError> {
+    pub fn to_json<FP: AsRef<Path>>(&self, file: FP) -> Result<(), ParameterError>
+    where
+        P: Serialize,
+        M: Serialize,
+    {
         Ok(serde_json::to_writer_pretty(
             BufWriter::new(File::create(file)?),
             self,
@@ -65,32 +64,25 @@ impl OptimizationProblem {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MetaOptimizationProblem {
+pub struct MetaOptimizationProblem<P> {
     pub molecules: HashMap<String, SuperMolecule>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub property_model: Option<PropertyModel>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub process: Option<ProcessModel>,
+    pub property_model: PropertyModel,
+    pub process: P,
     pub solutions: Vec<(String, OptimizationResult)>,
     pub candidates: HashMap<String, Vec<OptimizationResult>>,
 }
 
-impl MetaOptimizationProblem {
-    pub fn new(
-        molecules: HashMap<String, SuperMolecule>,
-        property_model: Option<PropertyModel>,
-        process: Option<ProcessModel>,
-    ) -> Self {
+impl<P: ProcessModel> MetaOptimizationProblem<P> {
+    pub fn new(molecule_size: usize, property_model: PropertyModel, process: P) -> Self {
         Self {
-            molecules,
+            molecules: SuperMolecule::all(molecule_size),
             property_model,
             process,
             solutions: Vec::new(),
             candidates: HashMap::new(),
         }
     }
+
     pub fn initialize_candidates(&mut self, candidates: HashMap<String, OptimizationResult>) {
         candidates.into_iter().for_each(|(s, r)| {
             self.candidates.insert(s, vec![r]);
@@ -118,11 +110,17 @@ impl MetaOptimizationProblem {
         self.solutions.push((chemical.clone(), best))
     }
 
-    pub fn from_json<P: AsRef<Path>>(file: P) -> Result<Self, ParameterError> {
+    pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
+    where
+        for<'a> P: Deserialize<'a>,
+    {
         Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
     }
 
-    pub fn to_json<P: AsRef<Path>>(&self, file: P) -> Result<(), ParameterError> {
+    pub fn to_json<FP: AsRef<Path>>(&self, file: FP) -> Result<(), ParameterError>
+    where
+        P: Serialize,
+    {
         Ok(serde_json::to_writer_pretty(
             BufWriter::new(File::create(file)?),
             self,

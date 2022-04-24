@@ -1,5 +1,5 @@
+use crate::process::{Process, Utility, UtilitySpecification};
 use crate::property::EquationsOfState;
-use crate::{Process, Utility, UtilitySpecification};
 use pyo3::prelude::*;
 use quantity::python::*;
 

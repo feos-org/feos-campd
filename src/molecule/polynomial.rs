@@ -11,6 +11,7 @@ impl Polynomial<2> {
         Polynomial2([[1.0 - p, p]])
     }
 }
+
 impl<const M: usize, const N: usize> Polynomial2<M, N> {
     pub fn zero() -> Self {
         Polynomial2([[0.0; N]; M])
