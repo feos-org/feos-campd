@@ -8,6 +8,7 @@ mip_outlevel 3                  # detailed output
 outmode     1                   # print to file
 
 mip_selectrule 2                # select the node with the best relaxation bound
+mip_branchrule 1
 findiff_relstepsize 1e-3        # step size for forward differences
 findiff_terminate 0             # no stopping criterion based on gradients
 mip_knapsack 0                  # do not use knapsack cuts
@@ -20,4 +21,4 @@ ms_maxsolves  12                # max 12 multistarts
 #ms_maxtime_real 120             # max 2 minutes for multistart
 #concurrent_evals 1              # allow concurrent callback evaluations
 #ms_numthreads 1                 # number of threads for multistart
-mip_numthreads 2                # number of threads for B&B
+mip_numthreads 1                # number of threads for B&B

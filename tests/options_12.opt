@@ -16,6 +16,3 @@ ms_enable 1                     # use multistart
 ms_terminate 1                  # terminate after the first local optimal solution
 ms_maxsolves  12                # max 12 multistarts
 ms_startptrange 1               # maximum range that each variable can take when determining new starting points
-#ms_maxtime_real 120             # max 2 minutes for multistart
-#concurrent_evals 1              # allow concurrent callback evaluations
-#ms_numthreads 1                 # number of threads for multistart
