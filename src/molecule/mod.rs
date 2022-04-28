@@ -13,7 +13,7 @@ pub trait MolecularRepresentation {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct FixedMolecule(pub String);
+pub struct FixedMolecule;
 
 impl MolecularRepresentation for FixedMolecule {
     fn variables(&self) -> usize {
@@ -21,8 +21,7 @@ impl MolecularRepresentation for FixedMolecule {
     }
 
     fn build(&self, _: Vec<f64>) -> ChemicalRecord {
-        let segments = HashMap::from([(self.0.clone(), 1.0)]);
-        let identifier = Identifier::new("", Some(&self.0), None, None, None, None);
-        ChemicalRecord::new_count(identifier, segments, None)
+        let identifier = Identifier::new("", Some("FixedMolecule"), None, None, None, None);
+        ChemicalRecord::new_count(identifier, HashMap::new(), None)
     }
 }

@@ -1,5 +1,5 @@
 use feos_core::joback::JobackRecord;
-use feos_core::parameter::{ChemicalRecord, Parameter, ParameterError, SegmentRecord};
+use feos_core::parameter::{ChemicalRecord, Parameter, ParameterError, PureRecord, SegmentRecord};
 use feos_core::{EquationOfState, HelmholtzEnergy, IdealGasContribution, MolarWeight};
 use feos_gc_pcsaft::{GcPcSaft, GcPcSaftEosParameters, GcPcSaftRecord};
 use feos_pcsaft::{PcSaft, PcSaftParameters, PcSaftRecord};
@@ -64,6 +64,7 @@ impl MolarWeight<SIUnit> for EquationsOfState {
 pub enum PropertyModel {
     PcSaft(Vec<SegmentRecord<PcSaftRecord, JobackRecord>>),
     GcPcSaft(Vec<SegmentRecord<GcPcSaftRecord, JobackRecord>>),
+    PcSaftFixed(Box<PureRecord<PcSaftRecord, JobackRecord>>),
 }
 
 impl PropertyModel {
@@ -89,6 +90,9 @@ impl PropertyModel {
                     segments.clone(),
                     None,
                 )?,
+            ))),
+            Self::PcSaftFixed(record) => EquationsOfState::PcSaft(PcSaft::new(Rc::new(
+                PcSaftParameters::new_pure(*record.clone()),
             ))),
         })
     }
