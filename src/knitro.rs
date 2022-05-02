@@ -230,11 +230,11 @@ impl<P: ProcessModel + Sync> MetaOptimizationProblem<P> {
                 let mut problem = self.callback(molecule, &[], chemical);
                 (
                     chemical.clone(),
-                    problem.solve_knitro_once(x0, options).unwrap(),
+                    vec![problem.solve_knitro_once(x0, options).unwrap()],
                 )
             })
             .collect();
-        self.initialize_candidates(candidates);
+        self.candidates = candidates;
 
         for _ in 0..n_solutions {
             let chemical = self.best_candidate();
@@ -244,7 +244,38 @@ impl<P: ProcessModel + Sync> MetaOptimizationProblem<P> {
                 &chemical,
             );
             let result = problem.solve_knitro_once(x0, options).unwrap();
-            self.update_candidates(chemical, result);
+            self.update_candidates(&chemical, result);
         }
+    }
+
+    pub fn find_best_knitro(&mut self, x0: &[f64], depth: usize, options: Option<&str>) {
+        let candidates = self
+            .molecules
+            .par_iter()
+            .map(|(chemical, molecule)| {
+                let mut results = vec![];
+                for _ in 0..depth {
+                    let mut problem = self.callback(molecule, &results, chemical);
+                    let result = problem.solve_knitro_once(x0, options).unwrap();
+                    results.push(result);
+                }
+                (chemical.clone(), results)
+            })
+            .collect();
+        self.candidates = candidates;
+
+        let mut best = 0.0;
+        let mut best_result = None;
+        let mut best_chemical = String::new();
+        for (chemical, results) in &self.candidates {
+            for result in results {
+                if result.target < best {
+                    best = result.target;
+                    best_result = Some(result.clone());
+                    best_chemical = chemical.clone();
+                }
+            }
+        }
+        self.solutions = vec![(best_chemical, best_result.unwrap())];
     }
 }

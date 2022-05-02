@@ -83,30 +83,24 @@ impl<P: ProcessModel> MetaOptimizationProblem<P> {
         }
     }
 
-    pub fn initialize_candidates(&mut self, candidates: HashMap<String, OptimizationResult>) {
-        candidates.into_iter().for_each(|(s, r)| {
-            self.candidates.insert(s, vec![r]);
-        });
-    }
-
     pub fn best_candidate(&self) -> String {
-        self.candidates
+        let (candidate, _) = self
+            .candidates
             .iter()
-            .min_by(|c1, c2| {
-                c1.1.last()
+            .min_by(|(_, c1), (_, c2)| {
+                c1.last()
                     .unwrap()
                     .target
-                    .partial_cmp(&c2.1.last().unwrap().target)
+                    .partial_cmp(&c2.last().unwrap().target)
                     .unwrap()
             })
-            .unwrap()
-            .0
-            .clone()
+            .unwrap();
+        candidate.clone()
     }
 
-    pub fn update_candidates(&mut self, chemical: String, solution: OptimizationResult) {
-        let best = self.candidates[&chemical].last().unwrap().clone();
-        self.candidates.get_mut(&chemical).unwrap().push(solution);
+    pub fn update_candidates(&mut self, chemical: &String, solution: OptimizationResult) {
+        let best = self.candidates[chemical].last().unwrap().clone();
+        self.candidates.get_mut(chemical).unwrap().push(solution);
         self.solutions.push((chemical.clone(), best))
     }
 
