@@ -202,7 +202,7 @@ impl From<UtilitySpecificationJSON> for UtilitySpecification {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
-pub struct UtilityJSON {
+struct UtilityJSON {
     #[serde(rename = "temperature [°C]")]
     temperature: f64,
     specification: UtilitySpecification,
