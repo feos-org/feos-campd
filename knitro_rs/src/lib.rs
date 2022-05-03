@@ -31,6 +31,10 @@ impl Knitro {
     fn handle_error(from: &str, res: i32) -> Result<(), KnitroError> {
         match res {
             0 => Ok(()),
+            -199..=-100 => {
+                println!("Warning: a feasible approximate solution was found.");
+                Ok(())
+            }
             _ => Err(KnitroError(from.into(), res)),
         }
     }

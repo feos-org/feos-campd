@@ -349,6 +349,7 @@ impl ProcessStep {
     }
 }
 
+#[derive(Clone)]
 pub struct ProcessPlot {
     pub entropy: SIArray1,
     pub temperature: SIArray1,
