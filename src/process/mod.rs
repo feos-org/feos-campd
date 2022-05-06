@@ -1,4 +1,5 @@
 use feos_core::{EosResult, EquationOfState, MolarWeight, StateBuilder};
+use ndarray::arr1;
 use petgraph::prelude::*;
 use quantity::si::{SIArray1, SINumber, SIUnit, CELSIUS, JOULE, KELVIN, KILO, KILOGRAM, WATT};
 use serde::{Deserialize, Serialize};
@@ -349,9 +350,48 @@ impl ProcessStep {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(from = "ProcessPlotJSON", into = "ProcessPlotJSON")]
 pub struct ProcessPlot {
     pub entropy: SIArray1,
     pub temperature: SIArray1,
     pub utility_temperature: Option<SIArray1>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProcessPlotJSON {
+    #[serde(rename = "entropy [kJ/kg/K]")]
+    entropy: Vec<f64>,
+    #[serde(rename = "temperature [°C]")]
+    temperature: Vec<f64>,
+    #[serde(rename = "utility temperature [°C]")]
+    utility_temperature: Option<Vec<f64>>,
+}
+
+impl From<ProcessPlot> for ProcessPlotJSON {
+    fn from(plot: ProcessPlot) -> Self {
+        Self {
+            entropy: plot
+                .entropy
+                .to_reduced(KILO * JOULE / KILOGRAM / KELVIN)
+                .unwrap()
+                .to_vec(),
+            temperature: (plot.temperature / CELSIUS).to_vec(),
+            utility_temperature: plot
+                .utility_temperature
+                .map(|utility_temperature| (utility_temperature / CELSIUS).to_vec()),
+        }
+    }
+}
+
+impl From<ProcessPlotJSON> for ProcessPlot {
+    fn from(plot: ProcessPlotJSON) -> Self {
+        Self {
+            entropy: arr1(&plot.entropy) * KILO * JOULE / KILOGRAM / KELVIN,
+            temperature: arr1(&plot.temperature) * CELSIUS,
+            utility_temperature: plot
+                .utility_temperature
+                .map(|utility_temperature| arr1(&utility_temperature) * CELSIUS),
+        }
+    }
 }
