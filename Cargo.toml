@@ -3,35 +3,22 @@ name = "feos-campd"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-name = "feos_campd"
-crate-type = ["rlib", "cdylib"]
-
 [dependencies]
 quantity = "0.5"
-feos-core = "0.2"
+feos-core = { path = "../feos-core" }
 ndarray = "0.15"
 petgraph = "0.6"
-feos-pcsaft = "0.2"
-feos-gc-pcsaft = "0.1"
 serde = "1.0"
-serde_derive = "1.0"
 serde_json = "1.0"
-rayon = "1.5"
-numpy = { version = "0.16", optional = true }
+rayon = { version = "1.5", optional = true }
 knitro_rs = { path = "knitro_rs", optional = true }
 
-[dependencies.pyo3]
-version = "0.16"
-features = ["extension-module", "abi3", "abi3-py37"]
-optional = true
-
 [dev-dependencies]
+feos-pcsaft = { path = "../feos-pcsaft", features = ["campd"] }
 itertools = "0.10"
 approx = "0.5"
 
 [features]
 default = []
-python = ["pyo3", "numpy", "feos-core/python"]
-knitro_12 = ["knitro_rs/knitro_12"]
-knitro_13 = ["knitro_rs/knitro_13"]
+knitro_12 = ["knitro_rs/knitro_12", "rayon"]
+knitro_13 = ["knitro_rs/knitro_13", "rayon"]

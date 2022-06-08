@@ -1,4 +1,5 @@
 #![allow(clippy::missing_safety_doc)]
+use crate::process::ProcessModel;
 use crate::*;
 use feos_core::EosResult;
 use knitro_rs::*;
@@ -116,16 +117,18 @@ pub trait ProcessModelKnitro: ProcessModel {
 
 impl<T: ProcessModel> ProcessModelKnitro for T {}
 
-struct OptimizationProblemCallback<'a, M, P> {
+struct OptimizationProblemCallback<'a, M, R, P> {
     molecule: &'a M,
-    property_model: &'a PropertyModel,
+    property_model: &'a R,
     process: &'a P,
     solutions: &'a [OptimizationResult],
     chemical: Option<&'a str>,
 }
 
-impl<'a, M, P> From<&'a OptimizationProblem<M, P>> for OptimizationProblemCallback<'a, M, P> {
-    fn from(problem: &'a OptimizationProblem<M, P>) -> Self {
+impl<'a, M, R, P> From<&'a OptimizationProblem<M, R, P>>
+    for OptimizationProblemCallback<'a, M, R, P>
+{
+    fn from(problem: &'a OptimizationProblem<M, R, P>) -> Self {
         Self {
             molecule: &problem.molecule,
             property_model: &problem.property_model,
@@ -136,13 +139,13 @@ impl<'a, M, P> From<&'a OptimizationProblem<M, P>> for OptimizationProblemCallba
     }
 }
 
-impl<P> MetaOptimizationProblem<P> {
+impl<R, P> MetaOptimizationProblem<R, P> {
     fn callback<'a>(
         &'a self,
         molecule: &'a SuperMolecule,
         solutions: &'a [OptimizationResult],
         chemical: &'a str,
-    ) -> OptimizationProblemCallback<'a, SuperMolecule, P> {
+    ) -> OptimizationProblemCallback<'a, SuperMolecule, R, P> {
         OptimizationProblemCallback {
             molecule,
             property_model: &self.property_model,
@@ -153,8 +156,8 @@ impl<P> MetaOptimizationProblem<P> {
     }
 }
 
-impl<M: MolecularRepresentationKnitro, P: ProcessModel> Callback
-    for OptimizationProblemCallback<'_, M, P>
+impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: ProcessModel>
+    Callback for OptimizationProblemCallback<'_, M, R, P>
 {
     fn callback(&self, x: &[f64], c: &mut [f64]) -> f64 {
         match self.evaluate(x) {
@@ -170,7 +173,9 @@ impl<M: MolecularRepresentationKnitro, P: ProcessModel> Callback
     }
 }
 
-impl<M: MolecularRepresentationKnitro, P: ProcessModel> OptimizationProblemCallback<'_, M, P> {
+impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: ProcessModel>
+    OptimizationProblemCallback<'_, M, R, P>
+{
     fn evaluate(&self, x: &[f64]) -> EosResult<(f64, Vec<f64>)> {
         let n_y = self.molecule.variables();
         let (y, x) = x.split_at(n_y);
@@ -205,7 +210,9 @@ impl<M: MolecularRepresentationKnitro, P: ProcessModel> OptimizationProblemCallb
     }
 }
 
-impl<M: MolecularRepresentationKnitro, P: ProcessModel> OptimizationProblem<M, P> {
+impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: ProcessModel>
+    OptimizationProblem<M, R, P>
+{
     pub fn solve_knitro(
         &mut self,
         x0: &[f64],
@@ -221,7 +228,9 @@ impl<M: MolecularRepresentationKnitro, P: ProcessModel> OptimizationProblem<M, P
     }
 }
 
-impl<P: ProcessModel + Sync> MetaOptimizationProblem<P> {
+impl<R: PropertyModel<SegmentAndBondCount> + Sync, P: ProcessModel + Sync>
+    MetaOptimizationProblem<R, P>
+{
     pub fn solve_knitro(&mut self, x0: &[f64], n_solutions: usize, options: Option<&str>) {
         let candidates = self
             .molecules

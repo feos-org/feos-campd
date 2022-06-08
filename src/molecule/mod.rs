@@ -1,13 +1,12 @@
-use feos_core::parameter::{ChemicalRecord, Identifier};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 mod polynomial;
 mod supermolecule;
-pub use supermolecule::SuperMolecule;
+pub use supermolecule::{SegmentAndBondCount, SuperMolecule};
 
 pub trait MolecularRepresentation {
-    fn build(&self, y: Vec<f64>) -> ChemicalRecord;
+    type ChemicalRecord;
+    fn build(&self, y: Vec<f64>) -> Self::ChemicalRecord;
 
     fn variables(&self) -> usize;
 }
@@ -16,12 +15,11 @@ pub trait MolecularRepresentation {
 pub struct FixedMolecule;
 
 impl MolecularRepresentation for FixedMolecule {
+    type ChemicalRecord = ();
+
     fn variables(&self) -> usize {
         0
     }
 
-    fn build(&self, _: Vec<f64>) -> ChemicalRecord {
-        let identifier = Identifier::new("", Some("FixedMolecule"), None, None, None, None);
-        ChemicalRecord::new_count(identifier, HashMap::new(), None)
-    }
+    fn build(&self, _: Vec<f64>) {}
 }

@@ -1,9 +1,34 @@
 use super::polynomial::{Polynomial, Polynomial2};
 use super::MolecularRepresentation;
-use feos_core::parameter::{ChemicalRecord, Identifier};
+use feos_core::parameter::{Identifier, SegmentCount};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::iter;
+
+#[derive(Clone)]
+pub struct SegmentAndBondCount {
+    pub segments: HashMap<String, f64>,
+    pub bonds: HashMap<[String; 2], f64>,
+}
+
+impl SegmentAndBondCount {
+    pub fn new(segments: HashMap<String, f64>, bonds: HashMap<[String; 2], f64>) -> Self {
+        Self { segments, bonds }
+    }
+}
+
+impl SegmentCount for SegmentAndBondCount {
+    type Count = f64;
+
+    fn identifier(&self) -> Cow<Identifier> {
+        Cow::Owned(Identifier::default())
+    }
+
+    fn segment_count(&self) -> Cow<HashMap<String, Self::Count>> {
+        Cow::Borrowed(&self.segments)
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FunctionalGroup {
@@ -356,6 +381,8 @@ impl SuperMolecule {
 }
 
 impl MolecularRepresentation for SuperMolecule {
+    type ChemicalRecord = SegmentAndBondCount;
+
     fn variables(&self) -> usize {
         self.functional_groups.len()
             + self
@@ -366,7 +393,7 @@ impl MolecularRepresentation for SuperMolecule {
                 .sum::<usize>()
     }
 
-    fn build(&self, y: Vec<f64>) -> ChemicalRecord {
+    fn build(&self, y: Vec<f64>) -> SegmentAndBondCount {
         match self.alkyls.len() {
             1 => (),
             2 => return self.build_ketone(y),
@@ -389,7 +416,6 @@ impl MolecularRepresentation for SuperMolecule {
             &mut c_bonds,
         );
 
-        let identifier = Identifier::new("", Some("SuperMolecule"), None, None, None, None);
         let cs = ["CH3", "CH2", ">CH", ">C<"];
 
         let mut segments: HashMap<_, _> = cs
@@ -421,12 +447,12 @@ impl MolecularRepresentation for SuperMolecule {
             }
         });
 
-        ChemicalRecord::new_count(identifier, segments, Some(bonds))
+        SegmentAndBondCount::new(segments, bonds)
     }
 }
 
 impl SuperMolecule {
-    fn build_ketone(&self, y: Vec<f64>) -> ChemicalRecord {
+    fn build_ketone(&self, y: Vec<f64>) -> SegmentAndBondCount {
         let y_iter = &mut y.into_iter();
         y_iter.next();
 
@@ -446,8 +472,6 @@ impl SuperMolecule {
             .collect();
         let cd_segments = calculate_bonds(alkyls, &mut cd_bonds);
 
-        let identifier = Identifier::new("", Some("SuperKetone"), None, None, None, None);
-
         let segments: HashMap<_, _> = cs
             .iter()
             .chain(cds.iter())
@@ -460,10 +484,10 @@ impl SuperMolecule {
         fill_bond_map(cs, cs, &c_bonds, &mut bonds);
         fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
 
-        ChemicalRecord::new_count(identifier, segments, Some(bonds))
+        SegmentAndBondCount::new(segments, bonds)
     }
 
-    fn build_alkene(&self, y: Vec<f64>) -> ChemicalRecord {
+    fn build_alkene(&self, y: Vec<f64>) -> SegmentAndBondCount {
         let y_iter = &mut y.into_iter();
         y_iter.next();
 
@@ -485,8 +509,6 @@ impl SuperMolecule {
             cd_segments.push(calculate_bonds(alkyls, &mut cd_bonds));
         }
 
-        let identifier = Identifier::new("", Some("SuperAlkene"), None, None, None, None);
-
         let segments: HashMap<_, _> = cs
             .iter()
             .chain(cds.iter())
@@ -506,7 +528,7 @@ impl SuperMolecule {
         let dd_bonds = cd_segments[0].outer_product(cd_segments[1]);
         fill_bond_map(cds, cds, &dd_bonds, &mut bonds);
 
-        ChemicalRecord::new_count(identifier, segments, Some(bonds))
+        SegmentAndBondCount::new(segments, bonds)
     }
 }
 
@@ -648,8 +670,8 @@ mod test {
 
     #[test]
     fn test_build() {
-        let cr = SuperMolecule::alcohol(4).build(vec![1.0, 0.9, 0.8, 0.5, 0.3]);
-        let (segments, bonds) = cr.segment_and_bond_count();
+        let SegmentAndBondCount { segments, bonds } =
+            SuperMolecule::alcohol(4).build(vec![1.0, 0.9, 0.8, 0.5, 0.3]);
         println!("{segments:?}\n{bonds:?}");
         assert_relative_eq!(segments["CH3"], 1.326);
         assert_relative_eq!(segments["CH2"], 0.958);
@@ -662,9 +684,8 @@ mod test {
 
     #[test]
     fn test_alcohol() {
-        let cr = SuperMolecule::alcohol(5).build(vec![1.0; 8]);
-        let (segments, bonds) = cr.segment_and_bond_count();
-        println!("{cr}");
+        let SegmentAndBondCount { segments, bonds } = SuperMolecule::alcohol(5).build(vec![1.0; 8]);
+        println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 4.0);
         assert_eq!(segments["CH2"], 1.0);
         assert_eq!(segments[">CH"], 1.0);
@@ -680,9 +701,8 @@ mod test {
 
     #[test]
     fn test_ketone() {
-        let cr = SuperMolecule::ketone(5).build(vec![1.0; 6]);
-        let (segments, bonds) = cr.segment_and_bond_count();
-        println!("{cr}");
+        let SegmentAndBondCount { segments, bonds } = SuperMolecule::ketone(5).build(vec![1.0; 6]);
+        println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 3.0);
         assert_eq!(segments["CH2"], 1.0);
         assert_eq!(segments[">CH"], 1.0);
@@ -696,9 +716,8 @@ mod test {
 
     #[test]
     fn test_alkene() {
-        let cr = SuperMolecule::alkene(5).build(vec![1.0; 7]);
-        let (segments, bonds) = cr.segment_and_bond_count();
-        println!("{cr}");
+        let SegmentAndBondCount { segments, bonds } = SuperMolecule::alkene(5).build(vec![1.0; 7]);
+        println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 4.0);
         assert_eq!(segments["CH2"], 1.0);
         assert_eq!(segments[">CH"], 1.0);

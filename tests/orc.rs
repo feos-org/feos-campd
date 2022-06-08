@@ -26,6 +26,8 @@ use approx::assert_relative_eq;
 #[cfg(feature = "knitro_rs")]
 use feos_campd::*;
 #[cfg(feature = "knitro_rs")]
+use feos_pcsaft::PcSaftPropertyModel;
+#[cfg(feature = "knitro_rs")]
 use knitro_rs::KnitroError;
 
 #[test]
@@ -33,7 +35,7 @@ use knitro_rs::KnitroError;
 fn test_validation() -> Result<(), KnitroError> {
     let molecule = SuperMolecule::alkane(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
-    let pcsaft = PropertyModel::new_pcsaft("tests/sauer2014_homo_joback.json").unwrap();
+    let pcsaft = PcSaftPropertyModel::new("tests/sauer2014_homo_joback.json").unwrap();
     let mut problem = OptimizationProblem::new(molecule, pcsaft, orc);
     #[cfg(feature = "knitro_13")]
     let options = Some("tests/options_13.opt");

@@ -11,26 +11,22 @@ use std::path::Path;
 mod molecule;
 pub mod process;
 mod property;
-pub use molecule::{FixedMolecule, MolecularRepresentation, SuperMolecule};
-use process::ProcessModel;
-pub use property::{EquationsOfState, PropertyModel};
-
-#[cfg(feature = "python")]
-mod python;
+pub use molecule::{FixedMolecule, MolecularRepresentation, SegmentAndBondCount, SuperMolecule};
+pub use property::PropertyModel;
 
 #[cfg(feature = "knitro_rs")]
 pub mod knitro;
 
 #[derive(Serialize, Deserialize)]
-pub struct OptimizationProblem<M, P> {
+pub struct OptimizationProblem<M, R, P> {
     pub molecule: M,
-    pub property_model: PropertyModel,
+    pub property_model: R,
     pub process: P,
     pub solutions: Vec<OptimizationResult>,
 }
 
-impl<M: MolecularRepresentation, P: ProcessModel> OptimizationProblem<M, P> {
-    pub fn new(molecule: M, property_model: PropertyModel, process: P) -> Self {
+impl<M, R, P> OptimizationProblem<M, R, P> {
+    pub fn new(molecule: M, property_model: R, process: P) -> Self {
         Self {
             molecule,
             property_model,
@@ -45,16 +41,18 @@ impl<M: MolecularRepresentation, P: ProcessModel> OptimizationProblem<M, P> {
 
     pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
     where
-        for<'a> P: Deserialize<'a> + Default,
         for<'a> M: Deserialize<'a> + Default,
+        for<'a> R: Deserialize<'a> + Default,
+        for<'a> P: Deserialize<'a> + Default,
     {
         Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
     }
 
     pub fn to_json<FP: AsRef<Path>>(&self, file: FP) -> Result<(), ParameterError>
     where
-        P: Serialize,
         M: Serialize,
+        R: Serialize,
+        P: Serialize,
     {
         Ok(serde_json::to_writer_pretty(
             BufWriter::new(File::create(file)?),
@@ -64,16 +62,16 @@ impl<M: MolecularRepresentation, P: ProcessModel> OptimizationProblem<M, P> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MetaOptimizationProblem<P> {
+pub struct MetaOptimizationProblem<R, P> {
     pub molecules: HashMap<String, SuperMolecule>,
-    pub property_model: PropertyModel,
+    pub property_model: R,
     pub process: P,
     pub solutions: Vec<(String, OptimizationResult)>,
     pub candidates: HashMap<String, Vec<OptimizationResult>>,
 }
 
-impl<P: ProcessModel> MetaOptimizationProblem<P> {
-    pub fn new(molecule_size: usize, property_model: PropertyModel, process: P) -> Self {
+impl<R, P> MetaOptimizationProblem<R, P> {
+    pub fn new(molecule_size: usize, property_model: R, process: P) -> Self {
         Self {
             molecules: SuperMolecule::all(molecule_size),
             property_model,
@@ -106,6 +104,7 @@ impl<P: ProcessModel> MetaOptimizationProblem<P> {
 
     pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
     where
+        for<'a> R: Deserialize<'a>,
         for<'a> P: Deserialize<'a>,
     {
         Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
@@ -113,6 +112,7 @@ impl<P: ProcessModel> MetaOptimizationProblem<P> {
 
     pub fn to_json<FP: AsRef<Path>>(&self, file: FP) -> Result<(), ParameterError>
     where
+        R: Serialize,
         P: Serialize,
     {
         Ok(serde_json::to_writer_pretty(
