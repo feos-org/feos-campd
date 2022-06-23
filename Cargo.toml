@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 quantity = "0.5"
-feos-core = { path = "../feos-core" }
+feos-core = { git = "https://github.com/feos-org/feos" }
+feos = { git = "https://github.com/feos-org/feos", features = ["pcsaft", "gc_pcsaft"] }
 ndarray = "0.15"
 petgraph = "0.6"
 serde = "1.0"
@@ -14,7 +15,6 @@ rayon = { version = "1.5", optional = true }
 knitro_rs = { path = "knitro_rs", optional = true }
 
 [dev-dependencies]
-feos-pcsaft = { path = "../feos-pcsaft", features = ["campd"] }
 itertools = "0.10"
 approx = "0.5"
 

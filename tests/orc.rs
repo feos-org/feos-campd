@@ -1,7 +1,7 @@
+use feos::pcsaft::{PcSaft, PcSaftParameters};
 use feos_campd::process::{OrganicRankineCycle, ProcessModel};
 use feos_core::parameter::{IdentifierOption, Parameter};
 use feos_core::EosResult;
-use feos_pcsaft::{PcSaft, PcSaftParameters};
 use std::fs::File;
 use std::io::BufReader;
 use std::rc::Rc;
@@ -25,8 +25,6 @@ pub fn test_orc() -> EosResult<()> {
 use approx::assert_relative_eq;
 #[cfg(feature = "knitro_rs")]
 use feos_campd::*;
-#[cfg(feature = "knitro_rs")]
-use feos_pcsaft::PcSaftPropertyModel;
 #[cfg(feature = "knitro_rs")]
 use knitro_rs::KnitroError;
 

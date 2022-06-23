@@ -12,7 +12,9 @@ mod molecule;
 pub mod process;
 mod property;
 pub use molecule::{FixedMolecule, MolecularRepresentation, SegmentAndBondCount, SuperMolecule};
-pub use property::PropertyModel;
+pub use property::{
+    GcPcSaftPropertyModel, PcSaftFixedPropertyModel, PcSaftPropertyModel, PropertyModel,
+};
 
 #[cfg(feature = "knitro_rs")]
 pub mod knitro;
