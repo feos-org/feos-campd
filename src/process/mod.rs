@@ -1,3 +1,4 @@
+//! Simple unit operations and process models.
 use feos_core::{EosResult, EquationOfState, MolarWeight, StateBuilder};
 use ndarray::arr1;
 use petgraph::prelude::*;
@@ -13,15 +14,20 @@ pub use equipment::Equipment;
 pub use orc::OrganicRankineCycle;
 pub use process_state::{Isobar, ProcessState};
 
+/// Generic process model to be used in an [OptimizationProblem].
 pub trait ProcessModel {
+    /// For each continuous process variable return the lower and upper bounds.
     fn variables(&self) -> Vec<[Option<f64>; 2]>;
 
+    /// Return the number of binary process variables.
     fn binary_variables(&self) -> usize {
         0
     }
 
+    /// For each constraint return the lower, upper and equality bound.
     fn constraints(&self) -> Vec<[Option<f64>; 3]>;
 
+    /// Solve the process model and return the [Process], the target and the constraint values.
     fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
         &self,
         eos: &Rc<E>,
@@ -29,8 +35,10 @@ pub trait ProcessModel {
     ) -> EosResult<(Process<E>, f64, Vec<f64>)>;
 }
 
+/// The type used to index a [Process].
 pub type StatePoint = NodeIndex;
 
+/// Representation of a simple process as a graph structure.
 pub struct Process<E> {
     graph: Graph<ProcessPoint<E>, ProcessStep>,
 }
@@ -44,14 +52,17 @@ impl<E> Default for Process<E> {
 }
 
 impl<E> Process<E> {
+    /// Create a new empty [Process].
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Add a [ProcessState] to the [Process].
     pub fn add_state(&mut self, state: ProcessState<E>) -> StatePoint {
         self.graph.add_node(state.into())
     }
 
+    /// Connect a given [StatePoint] vie a [ProcessStep] with a new [ProcessState].
     pub fn add_step(
         &mut self,
         feed: StatePoint,
@@ -63,10 +74,12 @@ impl<E> Process<E> {
         out
     }
 
+    /// Add a [ProcessStep] between two existing [StatePoint]s.
     pub fn add_connection(&mut self, feed: StatePoint, outlet: StatePoint, step: ProcessStep) {
         self.graph.add_edge(feed, outlet, step);
     }
 
+    /// Return the utility temperature at a given [StatePoint].
     pub fn utility_temperature(&self, index: StatePoint) -> Option<SINumber> {
         self.graph[index].utility_temperature.map(|[t, _]| t)
     }
@@ -80,6 +93,7 @@ impl<E> Index<StatePoint> for Process<E> {
 }
 
 impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
+    /// Add a [Utility] to a given [Equipment].
     pub fn add_utility(&mut self, equipment: &Equipment, utility: Utility) {
         let states = &equipment.states;
         let inlet = *states.first().unwrap();
@@ -104,6 +118,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
         }
     }
 
+    /// Return the net power of the entire process.
     pub fn net_power(&self) -> Option<SINumber> {
         self.graph
             .edge_references()
@@ -112,6 +127,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
             .map(|x| x.into_iter().reduce(|a, b| a + b).unwrap())
     }
 
+    /// Return the values of all pinch constraints in the process.
     pub fn pinch_constraints(&self) -> Vec<f64> {
         self.graph
             .node_weights()
@@ -124,6 +140,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
             .collect()
     }
 
+    /// Return the necessary data to plot all process steps.
     pub fn plot(&self) -> EosResult<Vec<ProcessPlot>> {
         self.graph
             .edge_references()
@@ -135,6 +152,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
     }
 }
 
+/// An edge in the [Process] graph. Contains a [ProcessState] the corresponding utility temperature.
 pub struct ProcessPoint<E> {
     state: ProcessState<E>,
     utility_temperature: Option<[SINumber; 2]>,
@@ -159,12 +177,16 @@ enum UtilitySpecificationJSON {
     OutletTemperature(f64),
 }
 
+/// Different ways of specifying a [Utility] stream.
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 #[serde(into = "UtilitySpecificationJSON")]
 #[serde(from = "UtilitySpecificationJSON")]
 pub enum UtilitySpecification {
+    /// Constant temperature <-> infinite heat capacity rate.
     ConstantTemperature,
+    /// Fixed heat capacity rate.
     HeatCapacityRate(SINumber),
+    /// Heat capacity rate inferred from outlet temperature.
     OutletTemperature(SINumber),
 }
 
@@ -211,6 +233,7 @@ struct UtilityJSON {
     min_approach_temperature: f64,
 }
 
+/// Data specifying a single utility stream.
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 #[serde(into = "UtilityJSON")]
 #[serde(from = "UtilityJSON")]
@@ -254,6 +277,7 @@ impl Utility {
     }
 }
 
+/// Possible state changes inbetween [ProcessState]s.
 pub enum ProcessStep {
     PhaseChange,
     Isobaric,
@@ -261,6 +285,7 @@ pub enum ProcessStep {
 }
 
 impl ProcessStep {
+    /// Return the power in-/output in the step.
     pub fn power<E: EquationOfState + MolarWeight<SIUnit>>(
         &self,
         states: [&ProcessState<E>; 2],
@@ -273,6 +298,7 @@ impl ProcessStep {
         }
     }
 
+    /// Return data required for drawing the step in a Ts plot.
     pub fn plot_ts<E: EquationOfState + MolarWeight<SIUnit>>(
         &self,
         states: [&ProcessPoint<E>; 2],
@@ -350,6 +376,7 @@ impl ProcessStep {
     }
 }
 
+/// Collection of data required to create a Ts plot of a process.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(from = "ProcessPlotJSON", into = "ProcessPlotJSON")]
 pub struct ProcessPlot {

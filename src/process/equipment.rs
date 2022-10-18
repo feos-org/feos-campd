@@ -2,11 +2,13 @@ use super::{Isobar, Process, ProcessState, ProcessStep, StatePoint};
 use feos_core::{Contributions, DensityInitialization, EosResult, EquationOfState, MolarWeight};
 use quantity::si::*;
 
+/// Representation of a single equipment in a [Process] graph.
 pub struct Equipment {
     pub states: Vec<StatePoint>,
 }
 
 impl Equipment {
+    /// Return the outlet of the equipment.
     pub fn out(&self) -> StatePoint {
         *self.states.last().unwrap()
     }

@@ -9,7 +9,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 #[derive(Serialize, Deserialize)]
-pub struct OrganicRankineCycleJSON {
+struct OrganicRankineCycleJSON {
     heat_source: Utility,
     isentropic_turbine_efficiency: f64,
     isentropic_pump_efficiency: f64,
@@ -22,6 +22,7 @@ pub struct OrganicRankineCycleJSON {
     cooling: Utility,
 }
 
+/// Implementation of a simplified process model for an organic Rankine cycle.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(from = "OrganicRankineCycleJSON")]
 #[serde(into = "OrganicRankineCycleJSON")]

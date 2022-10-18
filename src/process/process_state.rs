@@ -6,6 +6,7 @@ use ndarray::arr1;
 use quantity::si::{SINumber, SIUnit, MOL};
 use std::rc::Rc;
 
+/// Sub- or Supercritical isotherm.
 pub enum Isobar<E> {
     SuperCritical(SINumber),
     SubCritical(Rc<PhaseEquilibrium<SIUnit, E, 2>>),
@@ -49,6 +50,7 @@ impl<E: EquationOfState> Isobar<E> {
     }
 }
 
+/// A [State] that can consist of either a single phase or two phases in equilibrium.
 pub enum ProcessState<E> {
     SinglePhase(Box<State<SIUnit, E>>, Option<SINumber>),
     TwoPhase(Rc<PhaseEquilibrium<SIUnit, E, 2>>, f64, Option<SINumber>),
