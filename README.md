@@ -11,7 +11,7 @@ The crate provides some basic infrastructure to perform a computer-aided molecul
 - Property models (PC-SAFT and (heterosegmented) gc-PC-SAFT)
 - Infrastructure for simple process models including that for an organic Rankine cycle
 
-and the surrounding framework is used to run the optimization problems.
+and the surrounding framework that is used to run the optimization problems.
 
 Actually solving CAMPD problems is only possible with either the `knitro_12` or `knitro_13` feature which require the corresponding version of Artelys Knitro to be installed.
 
