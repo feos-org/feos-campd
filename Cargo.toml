@@ -1,12 +1,20 @@
 [package]
 name = "feos-campd"
 version = "0.1.0"
+authors = ["Philipp Rehner <prehner@ethz.ch>"]
 edition = "2021"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+description = "Computer-aided molecular and process design using the FeOs framework."
+homepage = "https://github.com/feos-org"
+repository = "https://github.com/feos-org/feos-campd"
+keywords = ["process_engineering", "molecular_design", "optimization"]
+categories = ["science"]
 
 [dependencies]
 quantity = "0.5"
-feos-core = { git = "https://github.com/feos-org/feos" }
-feos = { git = "https://github.com/feos-org/feos", features = ["pcsaft", "gc_pcsaft"] }
+feos-core = "0.3"
+feos = { version = "0.3", features = ["pcsaft", "gc_pcsaft"] }
 ndarray = "0.15"
 petgraph = "0.6"
 serde = "1.0"

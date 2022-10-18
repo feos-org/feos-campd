@@ -519,7 +519,7 @@ impl SuperMolecule {
                     .chain((cd_segments[0] + cd_segments[1]).iter())
                     .cloned(),
             )
-            .filter_map(|(s, g)| (g > 0.0).then(|| (s, g)))
+            .filter(|(_, g)| *g > 0.0)
             .collect();
 
         let mut bonds = HashMap::new();
