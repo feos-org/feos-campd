@@ -2,4 +2,5 @@
 Cargo.lock
 .vscode
 knitro.log
-
+**/.ipynb_checkpoints
+*.ipynb
