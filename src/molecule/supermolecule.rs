@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::iter;
 
+/// The molecular features used in the [GcPcSaftPropertyModel](crate::GcPcSaftPropertyModel).
 #[derive(Clone)]
 pub struct SegmentAndBondCount {
     pub segments: HashMap<String, f64>,
@@ -31,7 +32,7 @@ impl SegmentCount for SegmentAndBondCount {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct FunctionalGroup {
+struct FunctionalGroup {
     groups: Vec<String>,
     smiles: Vec<String>,
     atoms: usize,
@@ -95,7 +96,7 @@ impl FunctionalGroup {
     }
 }
 
-pub struct SuperAlkyl;
+struct SuperAlkyl;
 
 impl SuperAlkyl {
     fn variables(size: usize) -> usize {
@@ -187,6 +188,7 @@ impl SuperAlkyl {
     }
 }
 
+/// The molecule superstructure representation.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SuperMolecule {
     pub size: usize,
@@ -196,23 +198,6 @@ pub struct SuperMolecule {
 }
 
 impl SuperMolecule {
-    pub fn new(size: usize, functional_groups: Option<Vec<FunctionalGroup>>) -> Self {
-        let functional_groups = functional_groups.unwrap_or_else(|| {
-            vec![
-                FunctionalGroup::ch3(),
-                FunctionalGroup::ctch(),
-                FunctionalGroup::oh(),
-                FunctionalGroup::och3(),
-            ]
-        });
-        Self {
-            size,
-            functional_groups,
-            alkyls: vec![1],
-            symmetries: vec![],
-        }
-    }
-
     pub fn alkane(size: usize) -> Self {
         Self {
             size,

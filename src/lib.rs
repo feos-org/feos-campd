@@ -19,6 +19,7 @@ pub use property::{
 #[cfg(feature = "knitro_rs")]
 pub mod knitro;
 
+/// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel](process::ProcessModel).
 #[derive(Serialize, Deserialize)]
 pub struct OptimizationProblem<M, R, P> {
     pub molecule: M,
@@ -63,6 +64,7 @@ impl<M, R, P> OptimizationProblem<M, R, P> {
     }
 }
 
+/// An optimization problem that can handle multiple molecular representations simultaneously.
 #[derive(Serialize, Deserialize)]
 pub struct MetaOptimizationProblem<R, P> {
     pub molecules: HashMap<String, SuperMolecule>,
@@ -124,6 +126,7 @@ impl<R, P> MetaOptimizationProblem<R, P> {
     }
 }
 
+/// The output of a single optimization consisting of the target, structure variables, and process variables.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OptimizationResult {
     pub target: f64,

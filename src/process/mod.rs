@@ -14,7 +14,7 @@ pub use equipment::Equipment;
 pub use orc::OrganicRankineCycle;
 pub use process_state::{Isobar, ProcessState};
 
-/// Generic process model to be used in an [OptimizationProblem].
+/// Generic process model to be used in an [OptimizationProblem](super::OptimizationProblem).
 pub trait ProcessModel {
     /// For each continuous process variable return the lower and upper bounds.
     fn variables(&self) -> Vec<[Option<f64>; 2]>;

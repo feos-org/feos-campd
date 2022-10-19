@@ -11,11 +11,13 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::rc::Rc;
 
+/// A generic property model to be used in an [OptimizationProblem](super::OptimizationProblem).
 pub trait PropertyModel<C> {
     type Eos: EquationOfState + MolarWeight<SIUnit>;
     fn build_eos(&self, chemical_record: C) -> Result<Self::Eos, ParameterError>;
 }
 
+/// The (homosegmented) group contribution PC-SAFT model.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PcSaftPropertyModel(Vec<SegmentRecord<PcSaftRecord, JobackRecord>>);
 
@@ -37,6 +39,7 @@ impl PropertyModel<SegmentAndBondCount> for PcSaftPropertyModel {
     }
 }
 
+/// The PC-SAFT equation of state for a fixed molecule.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PcSaftFixedPropertyModel(PureRecord<PcSaftRecord, JobackRecord>);
 
@@ -56,6 +59,7 @@ impl PropertyModel<()> for PcSaftFixedPropertyModel {
     }
 }
 
+/// The heterosegmented gc-PC-SAFT equation of state.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GcPcSaftPropertyModel(Vec<SegmentRecord<GcPcSaftRecord, JobackRecord>>);
 
