@@ -1,48 +1,48 @@
+use feos_core::{si::*, IdealGas};
 use feos_core::{
-    Contributions, DensityInitialization, EosError, EosResult, EquationOfState, MolarWeight,
-    PhaseEquilibrium, State, StateBuilder,
+    Contributions, DensityInitialization, EosError, EosResult, PhaseEquilibrium, Residual, State,
+    StateBuilder,
 };
 use ndarray::arr1;
-use quantity::si::{SINumber, SIUnit, MOL};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Sub- or Supercritical isotherm.
 pub enum Isobar<E> {
-    SuperCritical(SINumber),
-    SubCritical(Rc<PhaseEquilibrium<SIUnit, E, 2>>),
+    SuperCritical(Pressure<f64>),
+    SubCritical(Arc<PhaseEquilibrium<E, 2>>),
 }
 
-impl<E: EquationOfState> Isobar<E> {
-    pub fn new(eos: &Rc<E>, pressure: SINumber) -> Self {
+impl<E: Residual> Isobar<E> {
+    pub fn new(eos: &Arc<E>, pressure: Pressure<f64>) -> Self {
         if let Ok(vle) = PhaseEquilibrium::pure(eos, pressure, None, Default::default()) {
-            Self::SubCritical(Rc::new(vle))
+            Self::SubCritical(Arc::new(vle))
         } else {
             Self::SuperCritical(pressure)
         }
     }
 
-    pub fn pressure(&self) -> SINumber {
+    pub fn pressure(&self) -> Pressure<f64> {
         match self {
             Self::SuperCritical(pressure) => *pressure,
             Self::SubCritical(vle) => vle.vapor().pressure(Contributions::Total),
         }
     }
 
-    pub fn phase_equilibrium(&self) -> EosResult<&Rc<PhaseEquilibrium<SIUnit, E, 2>>> {
+    pub fn phase_equilibrium(&self) -> EosResult<&Arc<PhaseEquilibrium<E, 2>>> {
         match self {
             Self::SuperCritical(_) => Err(EosError::SuperCritical),
             Self::SubCritical(vle) => Ok(vle),
         }
     }
 
-    pub fn saturated_liquid(&self) -> EosResult<&State<SIUnit, E>> {
+    pub fn saturated_liquid(&self) -> EosResult<&State<E>> {
         match self {
             Self::SuperCritical(_) => Err(EosError::SuperCritical),
             Self::SubCritical(vle) => Ok(vle.liquid()),
         }
     }
 
-    pub fn saturated_vapor(&self) -> EosResult<&State<SIUnit, E>> {
+    pub fn saturated_vapor(&self) -> EosResult<&State<E>> {
         match self {
             Self::SuperCritical(_) => Err(EosError::SuperCritical),
             Self::SubCritical(vle) => Ok(vle.vapor()),
@@ -52,8 +52,8 @@ impl<E: EquationOfState> Isobar<E> {
 
 /// A [State] that can consist of either a single phase or two phases in equilibrium.
 pub enum ProcessState<E> {
-    SinglePhase(Box<State<SIUnit, E>>, Option<SINumber>),
-    TwoPhase(Rc<PhaseEquilibrium<SIUnit, E, 2>>, f64, Option<SINumber>),
+    SinglePhase(Box<State<E>>, Option<MassFlowRate<f64>>),
+    TwoPhase(Arc<PhaseEquilibrium<E, 2>>, f64, Option<MassFlowRate<f64>>),
 }
 
 impl<E> Clone for ProcessState<E> {
@@ -65,13 +65,13 @@ impl<E> Clone for ProcessState<E> {
     }
 }
 
-impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
+impl<E: Residual + IdealGas> ProcessState<E> {
     pub fn new_pure_temperature_pressure(
-        eos: &Rc<E>,
-        temperature: SINumber,
-        pressure: SINumber,
-        mass_flow_rate: Option<SINumber>,
-        density_initialization: DensityInitialization<SIUnit>,
+        eos: &Arc<E>,
+        temperature: Temperature<f64>,
+        pressure: Pressure<f64>,
+        mass_flow_rate: Option<MassFlowRate<f64>>,
+        density_initialization: DensityInitialization,
     ) -> EosResult<Self> {
         Ok(Self::SinglePhase(
             Box::new(State::new_npt(
@@ -86,11 +86,11 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
     }
 
     fn new_pure_enthalpy_pressure(
-        eos: &Rc<E>,
-        molar_enthalpy: SINumber,
+        eos: &Arc<E>,
+        molar_enthalpy: MolarEnergy<f64>,
         isobar: &Isobar<E>,
-        initial_temperature: SINumber,
-        mass_flow_rate: Option<SINumber>,
+        initial_temperature: Temperature<f64>,
+        mass_flow_rate: Option<MassFlowRate<f64>>,
     ) -> EosResult<Self> {
         if let Isobar::SubCritical(vle) = isobar {
             let hv = vle.vapor().molar_enthalpy(Contributions::Total);
@@ -99,7 +99,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
             if molar_enthalpy > hl && molar_enthalpy < hv {
                 return Ok(Self::TwoPhase(
                     vle.clone(),
-                    (molar_enthalpy - hl).to_reduced(hv - hl)?,
+                    (molar_enthalpy - hl).into_unit(hv - hl),
                     mass_flow_rate,
                 ));
             }
@@ -113,11 +113,11 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
     }
 
     fn new_pure_entropy_pressure(
-        eos: &Rc<E>,
-        molar_entropy: SINumber,
+        eos: &Arc<E>,
+        molar_entropy: MolarEntropy<f64>,
         isobar: &Isobar<E>,
-        initial_temperature: SINumber,
-        mass_flow_rate: Option<SINumber>,
+        initial_temperature: Temperature<f64>,
+        mass_flow_rate: Option<MassFlowRate<f64>>,
     ) -> EosResult<Self> {
         if let Isobar::SubCritical(vle) = isobar {
             let sv = vle.vapor().molar_entropy(Contributions::Total);
@@ -125,7 +125,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
             if molar_entropy > sl && molar_entropy < sv {
                 return Ok(Self::TwoPhase(
                     vle.clone(),
-                    (molar_entropy - sl).to_reduced(sv - sl)?,
+                    (molar_entropy - sl).into_unit(sv - sl),
                     mass_flow_rate,
                 ));
             }
@@ -140,8 +140,8 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
 
     pub fn isobaric_temperature_change(
         &self,
-        temperature_change: SINumber,
-        density_initialization: DensityInitialization<SIUnit>,
+        temperature_change: Temperature<f64>,
+        density_initialization: DensityInitialization,
     ) -> EosResult<Self> {
         Self::new_pure_temperature_pressure(
             self.eos(),
@@ -154,7 +154,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
 
     pub fn isobaric_heat_transfer(
         &self,
-        heat_flow_rate: SINumber,
+        heat_flow_rate: Power<f64>,
         isobar: &Isobar<E>,
     ) -> EosResult<Self> {
         ProcessState::new_pure_enthalpy_pressure(
@@ -169,7 +169,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
     pub fn isentropic_expansion(
         &self,
         isobar: &Isobar<E>,
-        initial_temperature: SINumber,
+        initial_temperature: Temperature<f64>,
     ) -> EosResult<Self> {
         ProcessState::new_pure_entropy_pressure(
             self.eos(),
@@ -183,8 +183,8 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
     pub fn polytropic_expansion(
         &self,
         isobar: &Isobar<E>,
-        molar_work: SINumber,
-        initial_temperature: SINumber,
+        molar_work: MolarEnergy<f64>,
+        initial_temperature: Temperature<f64>,
     ) -> EosResult<Self> {
         ProcessState::new_pure_enthalpy_pressure(
             self.eos(),
@@ -232,35 +232,35 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         }
     }
 
-    pub fn eos(&self) -> &Rc<E> {
+    pub fn eos(&self) -> &Arc<E> {
         match self {
             Self::SinglePhase(state, _) => &state.eos,
             Self::TwoPhase(vle, _, _) => &vle.vapor().eos,
         }
     }
 
-    pub fn temperature(&self) -> SINumber {
+    pub fn temperature(&self) -> Temperature<f64> {
         match self {
             Self::SinglePhase(state, _) => state.temperature,
             Self::TwoPhase(vle, _, _) => vle.vapor().temperature,
         }
     }
 
-    pub fn density(&self) -> SINumber {
+    pub fn density(&self) -> Density<f64> {
         match self {
             Self::SinglePhase(state, _) => state.density,
             Self::TwoPhase(vle, _, _) => vle.vapor().density,
         }
     }
 
-    pub fn pressure(&self) -> SINumber {
+    pub fn pressure(&self) -> Pressure<f64> {
         match self {
             Self::SinglePhase(state, _) => state.pressure(Contributions::Total),
             Self::TwoPhase(vle, _, _) => vle.vapor().pressure(Contributions::Total),
         }
     }
 
-    pub fn specific_enthalpy(&self) -> SINumber {
+    pub fn specific_enthalpy(&self) -> SpecificEnergy<f64> {
         match self {
             Self::SinglePhase(state, _) => state.specific_enthalpy(Contributions::Total),
             Self::TwoPhase(vle, vapor_fraction, _) => {
@@ -270,7 +270,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         }
     }
 
-    pub fn specific_entropy(&self) -> SINumber {
+    pub fn specific_entropy(&self) -> SpecificEntropy<f64> {
         match self {
             Self::SinglePhase(state, _) => state.specific_entropy(Contributions::Total),
             Self::TwoPhase(vle, vapor_fraction, _) => {
@@ -280,7 +280,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         }
     }
 
-    pub fn molar_enthalpy(&self) -> SINumber {
+    pub fn molar_enthalpy(&self) -> MolarEnergy<f64> {
         match self {
             Self::SinglePhase(state, _) => state.molar_enthalpy(Contributions::Total),
             Self::TwoPhase(vle, vapor_fraction, _) => {
@@ -290,7 +290,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         }
     }
 
-    pub fn molar_entropy(&self) -> SINumber {
+    pub fn molar_entropy(&self) -> MolarEntropy<f64> {
         match self {
             Self::SinglePhase(state, _) => state.molar_entropy(Contributions::Total),
             Self::TwoPhase(vle, vapor_fraction, _) => {
@@ -300,14 +300,14 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         }
     }
 
-    pub fn mass_flow_rate(&self) -> Option<SINumber> {
+    pub fn mass_flow_rate(&self) -> Option<MassFlowRate<f64>> {
         match self {
             Self::SinglePhase(_, m) => *m,
             Self::TwoPhase(_, _, m) => *m,
         }
     }
 
-    pub fn mole_flow_rate(&self) -> Option<SINumber> {
+    pub fn mole_flow_rate(&self) -> Option<MoleFlowRate<f64>> {
         match self {
             Self::SinglePhase(state, m) => m.map(|m| m / state.total_molar_weight()),
             Self::TwoPhase(vle, vapor_fraction, m) => m.map(|m| {
@@ -318,7 +318,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> ProcessState<E> {
         }
     }
 
-    pub fn enthalpy_flow_rate(&self) -> Option<SINumber> {
+    pub fn enthalpy_flow_rate(&self) -> Option<Power<f64>> {
         self.mass_flow_rate().map(|m| m * self.specific_enthalpy())
     }
 }

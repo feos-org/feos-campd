@@ -1,10 +1,11 @@
 use feos::pcsaft::{PcSaft, PcSaftParameters};
 use feos_campd::process::{OrganicRankineCycle, ProcessModel};
+use feos_core::joback::{Joback, JobackParameters, JobackRecord};
 use feos_core::parameter::{IdentifierOption, Parameter};
-use feos_core::EosResult;
+use feos_core::{EosResult, EquationOfState};
 use std::fs::File;
 use std::io::BufReader;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[test]
 pub fn test_orc() -> EosResult<()> {
@@ -16,7 +17,11 @@ pub fn test_orc() -> EosResult<()> {
         None,
         IdentifierOption::Name,
     )?;
-    let eos = Rc::new(PcSaft::new(Rc::new(params)));
+    let pcsaft = Arc::new(PcSaft::new(Arc::new(params)));
+    let joback = Arc::new(Joback::new(Arc::new(JobackParameters::from_model_records(
+        vec![JobackRecord::new(0.0, 0.0, 0.0, 0.0, 0.0)],
+    )?)));
+    let eos = Arc::new(EquationOfState::new(joback, pcsaft));
     orc.solve(&eos, &[0.786, -4.5, -1.2, 0.8])?;
     Ok(())
 }
@@ -33,7 +38,8 @@ use knitro_rs::KnitroError;
 fn test_validation() -> Result<(), KnitroError> {
     let molecule = SuperMolecule::alkane(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
-    let pcsaft = PcSaftPropertyModel::new("tests/sauer2014_homo_joback.json").unwrap();
+    let pcsaft =
+        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json").unwrap();
     let mut problem = OptimizationProblem::new(molecule, pcsaft, orc);
     #[cfg(feature = "knitro_13")]
     let options = Some("tests/options_13.opt");

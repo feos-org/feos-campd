@@ -1,12 +1,12 @@
 use super::{Isobar, Process, ProcessModel, ProcessState, Utility};
 use feos_core::parameter::ParameterError;
-use feos_core::{Contributions, EosResult, EquationOfState, MolarWeight, State};
-use quantity::si::*;
+use feos_core::si::*;
+use feos_core::{Contributions, EosResult, IdealGas, Residual, State};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
 struct OrganicRankineCycleJSON {
@@ -30,9 +30,9 @@ pub struct OrganicRankineCycle {
     heat_source: Utility,
     isentropic_turbine_efficiency: f64,
     isentropic_pump_efficiency: f64,
-    min_abs_pressure: SINumber,
+    min_abs_pressure: Pressure<f64>,
     min_red_pressure: f64,
-    max_abs_pressure: SINumber,
+    max_abs_pressure: Pressure<f64>,
     max_red_pressure: f64,
     cooling: Utility,
 }
@@ -58,9 +58,9 @@ impl From<OrganicRankineCycle> for OrganicRankineCycleJSON {
             heat_source: orc.heat_source,
             isentropic_turbine_efficiency: orc.isentropic_turbine_efficiency,
             isentropic_pump_efficiency: orc.isentropic_pump_efficiency,
-            min_abs_pressure: orc.min_abs_pressure.to_reduced(BAR).unwrap(),
+            min_abs_pressure: orc.min_abs_pressure.into_unit(BAR),
             min_red_pressure: orc.min_red_pressure,
-            max_abs_pressure: orc.max_abs_pressure.to_reduced(BAR).unwrap(),
+            max_abs_pressure: orc.max_abs_pressure.into_unit(BAR),
             max_red_pressure: orc.max_red_pressure,
             cooling: orc.cooling,
         }
@@ -73,9 +73,9 @@ impl OrganicRankineCycle {
         heat_source: Utility,
         isentropic_turbine_efficiency: f64,
         isentropic_pump_efficiency: f64,
-        min_abs_pressure: SINumber,
+        min_abs_pressure: Pressure<f64>,
         min_red_pressure: f64,
-        max_abs_pressure: SINumber,
+        max_abs_pressure: Pressure<f64>,
         max_red_pressure: f64,
         cooling: Utility,
     ) -> Self {
@@ -126,22 +126,22 @@ impl ProcessModel for OrganicRankineCycle {
             [Some(0.0), None, None],
             // Absolute pressure (bar)
             [
-                Some(self.min_abs_pressure.to_reduced(BAR).unwrap()),
-                Some(self.max_abs_pressure.to_reduced(BAR).unwrap()),
+                Some(self.min_abs_pressure.into_unit(BAR)),
+                Some(self.max_abs_pressure.into_unit(BAR)),
                 None,
             ],
             [
-                Some(self.min_abs_pressure.to_reduced(BAR).unwrap()),
-                Some(self.max_abs_pressure.to_reduced(BAR).unwrap()),
+                Some(self.min_abs_pressure.into_unit(BAR)),
+                Some(self.max_abs_pressure.into_unit(BAR)),
                 None,
             ],
             [Some(1.0), None, None],
         ]
     }
 
-    fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
+    fn solve<E: Residual + IdealGas>(
         &self,
-        eos: &Rc<E>,
+        eos: &Arc<E>,
         x: &[f64],
     ) -> EosResult<(Process<E>, f64, Vec<f64>)> {
         // unpack variables
@@ -186,15 +186,15 @@ impl ProcessModel for OrganicRankineCycle {
         process.add_utility(&condenser, self.cooling);
 
         // Target
-        let target = process.net_power().unwrap().to_reduced(MEGA * WATT)?;
+        let target = process.net_power().unwrap().into_unit(MEGA * WATT);
 
         // Pinch constraints
         let mut constraints = process.pinch_constraints();
 
         // Absolute pressure constraints
-        constraints.push(p_cond.to_reduced(BAR)?);
-        constraints.push(p_evap.to_reduced(BAR)?);
-        constraints.push(p_evap.to_reduced(p_cond)?);
+        constraints.push(p_cond.into_unit(BAR));
+        constraints.push(p_evap.into_unit(BAR));
+        constraints.push(p_evap.into_unit(p_cond));
 
         Ok((process, target, constraints))
     }

@@ -113,7 +113,7 @@ impl SuperAlkyl {
             .map(|k| (size - 1) / k)
             .filter(|s| *s > 0)
             .for_each(|s| {
-                constraints.push([this as i32, *index + 1]);
+                constraints.push([this, *index + 1]);
                 *index += 1;
                 Self::bond_constraints(s, index, constraints);
             });
@@ -303,7 +303,6 @@ impl SuperMolecule {
 
     pub fn functional_group_constraint(&self) -> Vec<i32> {
         (0..self.functional_groups.len())
-            .into_iter()
             .map(|f| f as i32)
             .collect()
     }

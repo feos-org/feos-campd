@@ -4,7 +4,7 @@ use crate::*;
 use feos_core::EosResult;
 use knitro_rs::*;
 use rayon::iter::*;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub trait MolecularRepresentationKnitro: MolecularRepresentation {
     fn setup_knitro(
@@ -180,7 +180,7 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
         let n_y = self.molecule.variables();
         let (y, x) = x.split_at(n_y);
         let cr = self.molecule.build(y.to_vec());
-        let eos = Rc::new(self.property_model.build_eos(cr)?);
+        let eos = Arc::new(self.property_model.build_eos(cr)?);
         let (_, target, constraints) = self.process.solve(&eos, x)?;
         Ok((target, constraints))
     }

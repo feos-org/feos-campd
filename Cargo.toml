@@ -12,9 +12,8 @@ keywords = ["process_engineering", "molecular_design", "optimization"]
 categories = ["science"]
 
 [dependencies]
-quantity = "0.5"
-feos-core = "0.3"
-feos = { version = "0.3", features = ["pcsaft", "gc_pcsaft"] }
+feos-core = { path = "../feos/feos-core" }
+feos = { path = "../feos", features = ["pcsaft", "gc_pcsaft"] }
 ndarray = "0.15"
 petgraph = "0.6"
 serde = "1.0"
@@ -23,7 +22,7 @@ rayon = { version = "1.5", optional = true }
 knitro_rs = { version = "0.1", path = "knitro_rs", optional = true }
 
 [dev-dependencies]
-itertools = "0.10"
+itertools = "0.11"
 approx = "0.5"
 
 [features]

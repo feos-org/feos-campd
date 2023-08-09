@@ -1,11 +1,11 @@
 //! Simple unit operations and process models.
-use feos_core::{EosResult, EquationOfState, MolarWeight, StateBuilder};
-use ndarray::arr1;
+use feos_core::si::*;
+use feos_core::{EosResult, IdealGas, Residual, StateBuilder};
+use ndarray::{arr1, Array1};
 use petgraph::prelude::*;
-use quantity::si::{SIArray1, SINumber, SIUnit, CELSIUS, JOULE, KELVIN, KILO, KILOGRAM, WATT};
 use serde::{Deserialize, Serialize};
 use std::ops::Index;
-use std::rc::Rc;
+use std::sync::Arc;
 
 mod equipment;
 mod orc;
@@ -28,9 +28,9 @@ pub trait ProcessModel {
     fn constraints(&self) -> Vec<[Option<f64>; 3]>;
 
     /// Solve the process model and return the [Process], the target and the constraint values.
-    fn solve<E: EquationOfState + MolarWeight<SIUnit>>(
+    fn solve<E: Residual + IdealGas>(
         &self,
-        eos: &Rc<E>,
+        eos: &Arc<E>,
         x: &[f64],
     ) -> EosResult<(Process<E>, f64, Vec<f64>)>;
 }
@@ -80,7 +80,7 @@ impl<E> Process<E> {
     }
 
     /// Return the utility temperature at a given [StatePoint].
-    pub fn utility_temperature(&self, index: StatePoint) -> Option<SINumber> {
+    pub fn utility_temperature(&self, index: StatePoint) -> Option<Temperature<f64>> {
         self.graph[index].utility_temperature.map(|[t, _]| t)
     }
 }
@@ -92,7 +92,7 @@ impl<E> Index<StatePoint> for Process<E> {
     }
 }
 
-impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
+impl<E: Residual + IdealGas> Process<E> {
     /// Add a [Utility] to a given [Equipment].
     pub fn add_utility(&mut self, equipment: &Equipment, utility: Utility) {
         let states = &equipment.states;
@@ -119,7 +119,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
     }
 
     /// Return the net power of the entire process.
-    pub fn net_power(&self) -> Option<SINumber> {
+    pub fn net_power(&self) -> Option<Power<f64>> {
         self.graph
             .edge_references()
             .map(|e| e.weight().power([&self[e.source()], &self[e.target()]]))
@@ -133,8 +133,8 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
             .node_weights()
             .filter_map(|p| {
                 p.utility_temperature.map(|[t, dt]| {
-                    let s = dt.to_reduced(KELVIN).unwrap().signum() * KELVIN;
-                    (t - p.state.temperature() - dt).to_reduced(dt + s).unwrap()
+                    let s = dt.signum() * KELVIN;
+                    (t - p.state.temperature() - dt).into_unit(dt + s)
                 })
             })
             .collect()
@@ -155,7 +155,7 @@ impl<E: EquationOfState + MolarWeight<SIUnit>> Process<E> {
 /// An edge in the [Process] graph. Contains a [ProcessState] the corresponding utility temperature.
 pub struct ProcessPoint<E> {
     state: ProcessState<E>,
-    utility_temperature: Option<[SINumber; 2]>,
+    utility_temperature: Option<[Temperature<f64>; 2]>,
 }
 
 impl<E> From<ProcessState<E>> for ProcessPoint<E> {
@@ -185,9 +185,9 @@ pub enum UtilitySpecification {
     /// Constant temperature <-> infinite heat capacity rate.
     ConstantTemperature,
     /// Fixed heat capacity rate.
-    HeatCapacityRate(SINumber),
+    HeatCapacityRate(HeatCapacityRate<f64>),
     /// Heat capacity rate inferred from outlet temperature.
-    OutletTemperature(SINumber),
+    OutletTemperature(Temperature<f64>),
 }
 
 impl From<UtilitySpecification> for UtilitySpecificationJSON {
@@ -197,9 +197,7 @@ impl From<UtilitySpecification> for UtilitySpecificationJSON {
                 UtilitySpecificationJSON::ConstantTemperature
             }
             UtilitySpecification::HeatCapacityRate(c) => {
-                UtilitySpecificationJSON::HeatCapacityRate(
-                    c.to_reduced(KILO * WATT / KELVIN).unwrap(),
-                )
+                UtilitySpecificationJSON::HeatCapacityRate(c.into_unit(KILO * WATT / KELVIN))
             }
             UtilitySpecification::OutletTemperature(t) => {
                 UtilitySpecificationJSON::OutletTemperature(t / CELSIUS)
@@ -238,9 +236,9 @@ struct UtilityJSON {
 #[serde(into = "UtilityJSON")]
 #[serde(from = "UtilityJSON")]
 pub struct Utility {
-    pub temperature: SINumber,
+    pub temperature: Temperature<f64>,
     specification: UtilitySpecification,
-    min_approach_temperature: SINumber,
+    min_approach_temperature: Temperature<f64>,
 }
 
 impl From<Utility> for UtilityJSON {
@@ -248,7 +246,7 @@ impl From<Utility> for UtilityJSON {
         Self {
             temperature: utility.temperature / CELSIUS,
             specification: utility.specification,
-            min_approach_temperature: utility.min_approach_temperature.to_reduced(KELVIN).unwrap(),
+            min_approach_temperature: utility.min_approach_temperature.into_unit(KELVIN),
         }
     }
 }
@@ -265,9 +263,9 @@ impl From<UtilityJSON> for Utility {
 
 impl Utility {
     pub fn new(
-        temperature: SINumber,
+        temperature: Temperature<f64>,
         specification: UtilitySpecification,
-        min_approach_temperature: SINumber,
+        min_approach_temperature: Temperature<f64>,
     ) -> Self {
         Self {
             temperature,
@@ -286,10 +284,10 @@ pub enum ProcessStep {
 
 impl ProcessStep {
     /// Return the power in-/output in the step.
-    pub fn power<E: EquationOfState + MolarWeight<SIUnit>>(
+    pub fn power<E: Residual + IdealGas>(
         &self,
         states: [&ProcessState<E>; 2],
-    ) -> Option<SINumber> {
+    ) -> Option<Power<f64>> {
         match self {
             Self::Polytropic => states[0]
                 .mass_flow_rate()
@@ -299,28 +297,28 @@ impl ProcessStep {
     }
 
     /// Return data required for drawing the step in a Ts plot.
-    pub fn plot_ts<E: EquationOfState + MolarWeight<SIUnit>>(
+    pub fn plot_ts<E: Residual + IdealGas>(
         &self,
         states: [&ProcessPoint<E>; 2],
     ) -> EosResult<ProcessPlot> {
         Ok(match self {
             Self::PhaseChange => ProcessPlot {
-                temperature: SIArray1::from_shape_fn(2, |i| states[i].state.temperature()),
-                entropy: SIArray1::from_shape_fn(2, |i| states[i].state.specific_entropy()),
+                temperature: Temperature::from_shape_fn(2, |i| states[i].state.temperature()),
+                entropy: SpecificEntropy::from_shape_fn(2, |i| states[i].state.specific_entropy()),
                 utility_temperature: if let [Some([t1, _]), Some([t2, _])] =
                     [states[0].utility_temperature, states[1].utility_temperature]
                 {
-                    Some(SIArray1::from_vec(vec![t1, t2]))
+                    Some(Temperature::from_vec(vec![t1, t2]))
                 } else {
                     None
                 },
             },
             Self::Isobaric => {
-                let temperature = SIArray1::linspace(
+                let temperature = Temperature::linspace(
                     states[0].state.temperature(),
                     states[1].state.temperature(),
                     50,
-                )?;
+                );
                 let pressure = states[0].state.pressure();
                 let mut state_vec = vec![states[0].state.clone()];
                 state_vec.extend((1..49).map(|i| {
@@ -337,12 +335,13 @@ impl ProcessStep {
                     )
                 }));
                 state_vec.push(states[1].state.clone());
-                let entropy =
-                    SIArray1::from_shape_fn(state_vec.len(), |i| state_vec[i].specific_entropy());
+                let entropy = SpecificEntropy::from_shape_fn(state_vec.len(), |i| {
+                    state_vec[i].specific_entropy()
+                });
                 let utility_temperature = if let [Some([t1, _]), Some([t2, _])] =
                     [states[0].utility_temperature, states[1].utility_temperature]
                 {
-                    let enthalpy = SIArray1::from_shape_fn(state_vec.len(), |i| {
+                    let enthalpy = SpecificEnergy::from_shape_fn(state_vec.len(), |i| {
                         state_vec[i].specific_enthalpy()
                     });
                     let h_in = enthalpy.get(0);
@@ -363,9 +362,9 @@ impl ProcessStep {
                 let s0 = states[0].state.specific_entropy();
                 let s1 = states[1].state.specific_entropy();
 
-                let k = (s1 - s0) / t1.to_reduced(t0)?.ln();
-                let temperature = SIArray1::linspace(t0, t1, 50)?;
-                let entropy = s0 + k * temperature.to_reduced(t0)?.mapv(f64::ln);
+                let k = (s1 - s0) / t1.into_unit(t0).ln();
+                let temperature = Temperature::linspace(t0, t1, 50);
+                let entropy = s0 + (&temperature / t0).into_value().mapv(f64::ln) * k;
                 ProcessPlot {
                     temperature,
                     entropy,
@@ -380,9 +379,9 @@ impl ProcessStep {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(from = "ProcessPlotJSON", into = "ProcessPlotJSON")]
 pub struct ProcessPlot {
-    pub entropy: SIArray1,
-    pub temperature: SIArray1,
-    pub utility_temperature: Option<SIArray1>,
+    pub entropy: SpecificEntropy<Array1<f64>>,
+    pub temperature: Temperature<Array1<f64>>,
+    pub utility_temperature: Option<Temperature<Array1<f64>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -398,10 +397,8 @@ struct ProcessPlotJSON {
 impl From<ProcessPlot> for ProcessPlotJSON {
     fn from(plot: ProcessPlot) -> Self {
         Self {
-            entropy: plot
-                .entropy
-                .to_reduced(KILO * JOULE / KILOGRAM / KELVIN)
-                .unwrap()
+            entropy: (plot.entropy / (KILO * JOULE / KILOGRAM / KELVIN))
+                .into_value()
                 .to_vec(),
             temperature: (plot.temperature / CELSIUS).to_vec(),
             utility_temperature: plot
