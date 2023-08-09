@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+mod comt_camd;
 mod polynomial;
 mod supermolecule;
+pub use comt_camd::{CoMTCAMD, GroupCount};
 pub use supermolecule::{SegmentAndBondCount, SuperMolecule};
 
 /// A generic molecular representation to be used in an [OptimizationProblem](super::OptimizationProblem).

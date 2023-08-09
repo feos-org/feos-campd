@@ -11,7 +11,10 @@ use std::path::Path;
 mod molecule;
 pub mod process;
 mod property;
-pub use molecule::{FixedMolecule, MolecularRepresentation, SegmentAndBondCount, SuperMolecule};
+pub use molecule::{
+    CoMTCAMD, FixedMolecule, GroupCount, MolecularRepresentation, SegmentAndBondCount,
+    SuperMolecule,
+};
 pub use property::{
     GcPcSaftPropertyModel, PcSaftFixedPropertyModel, PcSaftPropertyModel, PropertyModel,
 };

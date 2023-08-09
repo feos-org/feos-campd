@@ -1,3 +1,5 @@
+use crate::GroupCount;
+
 use super::molecule::SegmentAndBondCount;
 use feos::gc_pcsaft::{GcPcSaft, GcPcSaftChemicalRecord, GcPcSaftEosParameters, GcPcSaftRecord};
 use feos::pcsaft::{PcSaft, PcSaftParameters, PcSaftRecord};
@@ -43,6 +45,28 @@ impl PropertyModel<SegmentAndBondCount> for PcSaftPropertyModel {
     fn build_eos(
         &self,
         chemical_record: SegmentAndBondCount,
+    ) -> Result<EquationOfState<Joback, PcSaft>, ParameterError> {
+        let pcsaft = PcSaft::new(Arc::new(PcSaftParameters::from_segments(
+            vec![chemical_record.clone()],
+            self.0.clone(),
+            None,
+        )?));
+        let joback = Joback::new(Arc::new(JobackParameters::from_segments(
+            vec![chemical_record],
+            self.1.clone(),
+            None,
+        )?));
+        Ok(EquationOfState::new(Arc::new(joback), Arc::new(pcsaft)))
+    }
+}
+
+impl PropertyModel<GroupCount> for PcSaftPropertyModel {
+    type Residual = PcSaft;
+    type IdealGas = Joback;
+
+    fn build_eos(
+        &self,
+        chemical_record: GroupCount,
     ) -> Result<EquationOfState<Joback, PcSaft>, ParameterError> {
         let pcsaft = PcSaft::new(Arc::new(PcSaftParameters::from_segments(
             vec![chemical_record.clone()],

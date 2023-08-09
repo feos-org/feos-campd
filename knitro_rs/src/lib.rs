@@ -154,6 +154,29 @@ impl Knitro {
         Ok(())
     }
 
+    pub fn add_con_quadratic_struct_one(
+        &self,
+        indexCon: i32,
+        indexVars1: &[i32],
+        indexVars2: &[i32],
+        coefs: &[f64],
+    ) -> Result<(), KnitroError> {
+        unsafe {
+            Self::handle_error(
+                "KN_add_con_quadratic_struct_one",
+                KN_add_con_quadratic_struct_one(
+                    self.0,
+                    indexVars1.len() as i64,
+                    indexCon,
+                    indexVars1.as_ptr(),
+                    indexVars2.as_ptr(),
+                    coefs.as_ptr(),
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
     #[cfg(feature = "knitro_13")]
     pub fn add_con_linear_term(
         &self,
