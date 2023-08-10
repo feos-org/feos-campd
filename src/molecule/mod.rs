@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 mod comt_camd;
 mod polynomial;
 mod supermolecule;
+mod supermolecule_disjunct;
 pub use comt_camd::{CoMTCAMD, GroupCount};
 pub use supermolecule::{SegmentAndBondCount, SuperMolecule};
+pub use supermolecule_disjunct::SuperMoleculeDisjunct;
 
 /// A generic molecular representation to be used in an [OptimizationProblem](super::OptimizationProblem).
 pub trait MolecularRepresentation {

@@ -73,3 +73,24 @@ fn test_comt_camd() -> Result<(), KnitroError> {
     );
     Ok(())
 }
+
+#[test]
+#[cfg(feature = "knitro_rs")]
+fn test_supermolecule_disjunct() -> Result<(), KnitroError> {
+    let molecule = SuperMoleculeDisjunct::new(5);
+    let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
+    let pcsaft =
+        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json").unwrap();
+    let mut problem = OptimizationProblem::new(molecule.clone(), pcsaft, orc);
+    #[cfg(feature = "knitro_13")]
+    let options = Some("tests/options_13.opt");
+    #[cfg(feature = "knitro_12")]
+    let options = Some("tests/options_12.opt");
+    problem.solve_knitro(&[0.786, -4.5, -1.2, 0.8], 1, options)?;
+    assert_relative_eq!(
+        -1.5905756277031002,
+        problem.solutions[0].target,
+        max_relative = 1e-5
+    );
+    Ok(())
+}

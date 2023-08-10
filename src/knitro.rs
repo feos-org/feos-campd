@@ -14,62 +14,6 @@ pub trait MolecularRepresentationKnitro: MolecularRepresentation {
     ) -> Result<(), KnitroError>;
 }
 
-impl MolecularRepresentationKnitro for SuperMolecule {
-    fn setup_knitro(
-        &self,
-        kc: &Knitro,
-        solutions: &[OptimizationResult],
-    ) -> Result<(), KnitroError> {
-        let n_y = self.variables();
-
-        // binary variables
-        let index_vars = kc.add_vars(n_y, Some(KN_VARTYPE_BINARY))?;
-
-        // maximum size
-        let index_con = kc.add_con()?;
-        let (coefs, size) = self.size_constraint();
-        kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
-        kc.set_con_upbnd(index_con, size as f64)?;
-
-        // integer cuts
-        for solution in solutions {
-            let index_con = kc.add_con()?;
-            let coefs: Vec<_> = solution.y.iter().map(|&y| 2.0 * y as f64 - 1.0).collect();
-            kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
-            kc.set_con_upbnd(index_con, solution.y.iter().sum::<usize>() as f64 - 1.0)?;
-        }
-
-        // functional group
-        let index_vars = self.functional_group_constraint();
-        if !index_vars.is_empty() {
-            let index_con = kc.add_con()?;
-            kc.add_con_linear_struct_one(index_con, &index_vars, &vec![1.0; index_vars.len()])?;
-            kc.set_con_eqbnd(index_con, 1.0)?;
-        }
-
-        // minimum size
-        let index_con = kc.add_con()?;
-        kc.add_con_linear_term(index_con, index_vars.len() as i32, 1.0)?;
-        kc.set_con_eqbnd(index_con, 1.0)?;
-
-        // bond constraints
-        for bond in self.bond_constraints() {
-            let index_con = kc.add_con()?;
-            kc.add_con_linear_struct_one(index_con, &bond, &[1.0, -1.0])?;
-            kc.set_con_lobnd(index_con, 0.0)?;
-        }
-
-        // symmetry constraints
-        for (index_vars, coefs) in self.symmetry_constraints() {
-            let index_con = kc.add_con()?;
-            kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
-            kc.set_con_lobnd(index_con, 0.0)?;
-        }
-
-        Ok(())
-    }
-}
-
 impl MolecularRepresentationKnitro for FixedMolecule {
     fn setup_knitro(&self, _: &Knitro, _: &[OptimizationResult]) -> Result<(), KnitroError> {
         Ok(())
