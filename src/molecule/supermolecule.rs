@@ -288,8 +288,7 @@ impl SuperMolecule {
         )
     }
 
-    pub fn bond_constraints(&self) -> Vec<[i32; 2]> {
-        let mut index = 0;
+    pub fn bond_constraints(&self, mut index: i32) -> Vec<[i32; 2]> {
         let mut constraints = Vec::new();
         self.alkyl_tails()
             .iter()
@@ -301,8 +300,7 @@ impl SuperMolecule {
         constraints
     }
 
-    pub fn symmetry_constraints(&self) -> Vec<(Vec<i32>, Vec<f64>)> {
-        let mut index = 0;
+    pub fn symmetry_constraints(&self, mut index: i32) -> Vec<(Vec<i32>, Vec<f64>)> {
         let mut constraints = Vec::new();
         let children: Vec<_> = self
             .alkyl_tails()
@@ -529,15 +527,10 @@ fn fill_bond_map<const M: usize, const N: usize>(
 mod knitro {
     use super::*;
     use crate::knitro::MolecularRepresentationKnitro;
-    use crate::OptimizationResult;
     use knitro_rs::{Knitro, KnitroError, KN_VARTYPE_BINARY};
 
     impl MolecularRepresentationKnitro for SuperMolecule {
-        fn setup_knitro(
-            &self,
-            kc: &Knitro,
-            solutions: &[OptimizationResult],
-        ) -> Result<(), KnitroError> {
+        fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
             let n_y = self.variables();
 
             // binary variables
@@ -549,28 +542,20 @@ mod knitro {
             kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
             kc.set_con_upbnd(index_con, size)?;
 
-            // integer cuts
-            for solution in solutions {
-                let index_con = kc.add_con()?;
-                let coefs: Vec<_> = solution.y.iter().map(|&y| 2.0 * y as f64 - 1.0).collect();
-                kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
-                kc.set_con_upbnd(index_con, solution.y.iter().sum::<usize>() as f64 - 1.0)?;
-            }
-
             // minimum size
             let index_con = kc.add_con()?;
-            kc.add_con_linear_term(index_con, 0, 1.0)?;
+            kc.add_con_linear_term(index_con, index_vars[0], 1.0)?;
             kc.set_con_eqbnd(index_con, 1.0)?;
 
             // bond constraints
-            for bond in self.bond_constraints() {
+            for bond in self.bond_constraints(index_vars[0]) {
                 let index_con = kc.add_con()?;
                 kc.add_con_linear_struct_one(index_con, &bond, &[1.0, -1.0])?;
                 kc.set_con_lobnd(index_con, 0.0)?;
             }
 
             // symmetry constraints
-            for (index_vars, coefs) in self.symmetry_constraints() {
+            for (index_vars, coefs) in self.symmetry_constraints(index_vars[0]) {
                 let index_con = kc.add_con()?;
                 kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
                 kc.set_con_lobnd(index_con, 0.0)?;
@@ -590,8 +575,8 @@ mod test {
     fn isomers(molecule: SuperMolecule) -> usize {
         let mut res = 0;
         let (size_constraint, size) = molecule.size_constraint();
-        let bond_constraints = molecule.bond_constraints();
-        let symmetry_constraints = molecule.symmetry_constraints();
+        let bond_constraints = molecule.bond_constraints(0);
+        let symmetry_constraints = molecule.symmetry_constraints(0);
         for y in vec![0..=1; molecule.variables()]
             .into_iter()
             .multi_cartesian_product()

@@ -52,7 +52,6 @@ impl MolecularRepresentation for SuperMoleculeDisjunct {
                 *cr.bonds.entry(bond).or_insert(0.0) += count * c;
             }
         }
-        // println!("{:?}", cr.segments);
         cr
     }
 
@@ -70,15 +69,10 @@ impl MolecularRepresentation for SuperMoleculeDisjunct {
 mod knitro {
     use super::*;
     use crate::knitro::MolecularRepresentationKnitro;
-    use crate::OptimizationResult;
     use knitro_rs::{Knitro, KnitroError, KN_VARTYPE_BINARY};
 
     impl MolecularRepresentationKnitro for SuperMoleculeDisjunct {
-        fn setup_knitro(
-            &self,
-            kc: &Knitro,
-            solutions: &[OptimizationResult],
-        ) -> Result<(), KnitroError> {
+        fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
             // structure variables
             let index_vars = kc.add_vars(self.variables(), Some(KN_VARTYPE_BINARY))?;
             let (y, c) = index_vars.split_at(index_vars.len() - self.supermolecules.len());
@@ -88,14 +82,6 @@ mod knitro {
             let index_con = kc.add_con()?;
             kc.add_con_linear_struct_one(index_con, c, &coefs)?;
             kc.set_con_eqbnd(index_con, 1.0)?;
-
-            // integer cuts
-            for solution in solutions {
-                let index_con = kc.add_con()?;
-                let coefs: Vec<_> = solution.y.iter().map(|&y| 2.0 * y as f64 - 1.0).collect();
-                kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
-                kc.set_con_upbnd(index_con, solution.y.iter().sum::<usize>() as f64 - 1.0)?;
-            }
 
             for (&c, supermolecule) in c.iter().zip(self.supermolecules.iter()) {
                 // binary variables
@@ -122,12 +108,12 @@ mod knitro {
 
                 // minimum size
                 let index_con = kc.add_con()?;
-                kc.add_con_linear_term(index_con, 0, 1.0)?;
+                kc.add_con_linear_term(index_con, index_vars[0], 1.0)?;
                 kc.add_con_linear_term(index_con, c, -1.0)?;
                 kc.set_con_lobnd(index_con, 0.0)?;
 
                 // bond constraints
-                for bond in supermolecule.bond_constraints() {
+                for bond in supermolecule.bond_constraints(index_vars[0]) {
                     let index_con = kc.add_con()?;
                     kc.add_con_linear_struct_one(index_con, &bond, &[1.0, -1.0])?;
                     kc.add_con_linear_term(index_con, c, -1.0)?;
@@ -135,7 +121,7 @@ mod knitro {
                 }
 
                 // symmetry constraints
-                for (index_vars, coefs) in supermolecule.symmetry_constraints() {
+                for (index_vars, coefs) in supermolecule.symmetry_constraints(index_vars[0]) {
                     let big_m = coefs.iter().map(|&a| a.min(0.0)).sum::<f64>();
                     let index_con = kc.add_con()?;
                     kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;

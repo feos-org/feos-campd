@@ -3,19 +3,14 @@ use crate::process::ProcessModel;
 use crate::*;
 use feos_core::EosResult;
 use knitro_rs::*;
-use rayon::iter::*;
 use std::sync::Arc;
 
 pub trait MolecularRepresentationKnitro: MolecularRepresentation {
-    fn setup_knitro(
-        &self,
-        kc: &Knitro,
-        solutions: &[OptimizationResult],
-    ) -> Result<(), KnitroError>;
+    fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError>;
 }
 
 impl MolecularRepresentationKnitro for FixedMolecule {
-    fn setup_knitro(&self, _: &Knitro, _: &[OptimizationResult]) -> Result<(), KnitroError> {
+    fn setup_knitro(&self, _: &Knitro) -> Result<(), KnitroError> {
         Ok(())
     }
 }
@@ -62,11 +57,10 @@ pub trait ProcessModelKnitro: ProcessModel {
 impl<T: ProcessModel> ProcessModelKnitro for T {}
 
 struct OptimizationProblemCallback<'a, M, R, P> {
-    molecule: &'a M,
+    molecules: &'a [M],
     property_model: &'a R,
     process: &'a P,
     solutions: &'a [OptimizationResult],
-    chemical: Option<&'a str>,
 }
 
 impl<'a, M, R, P> From<&'a OptimizationProblem<M, R, P>>
@@ -74,28 +68,10 @@ impl<'a, M, R, P> From<&'a OptimizationProblem<M, R, P>>
 {
     fn from(problem: &'a OptimizationProblem<M, R, P>) -> Self {
         Self {
-            molecule: &problem.molecule,
+            molecules: &problem.molecules,
             property_model: &problem.property_model,
             process: &problem.process,
             solutions: &problem.solutions,
-            chemical: None,
-        }
-    }
-}
-
-impl<R, P> MetaOptimizationProblem<R, P> {
-    fn callback<'a>(
-        &'a self,
-        molecule: &'a SuperMolecule,
-        solutions: &'a [OptimizationResult],
-        chemical: &'a str,
-    ) -> OptimizationProblemCallback<'a, SuperMolecule, R, P> {
-        OptimizationProblemCallback {
-            molecule,
-            property_model: &self.property_model,
-            process: &self.process,
-            solutions,
-            chemical: Some(chemical),
         }
     }
 }
@@ -121,9 +97,17 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
     OptimizationProblemCallback<'_, M, R, P>
 {
     fn evaluate(&self, x: &[f64]) -> EosResult<(f64, Vec<f64>)> {
-        let n_y = self.molecule.variables();
-        let (y, x) = x.split_at(n_y);
-        let cr = self.molecule.build(y.to_vec());
+        let n_y = self.molecules.iter().map(|m| m.variables()).sum();
+        let (mut y, x) = x.split_at(n_y);
+        let cr = self
+            .molecules
+            .iter()
+            .map(|molecule| {
+                let (y1, y2) = y.split_at(molecule.variables());
+                y = y2;
+                molecule.build(y1.to_vec())
+            })
+            .collect();
         let eos = Arc::new(self.property_model.build_eos(cr)?);
         let (_, target, constraints) = self.process.solve(&eos, x)?;
         Ok((target, constraints))
@@ -134,10 +118,26 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
         x0: &[f64],
         options: Option<&str>,
     ) -> Result<OptimizationResult, KnitroError> {
-        let n_y = self.molecule.variables();
+        let n_y = self.molecules.iter().map(|m| m.variables()).sum();
 
         let kc = Knitro::new()?;
-        self.molecule.setup_knitro(&kc, self.solutions)?;
+        self.molecules
+            .iter()
+            .try_for_each(|molecule| molecule.setup_knitro(&kc))?;
+
+        // integer cuts
+        for solution in self.solutions {
+            let y0 = &solution.y[..n_y];
+            let vars = Vec::from_iter(0..n_y as i32);
+            let c = kc.add_con()?;
+            let qcoefs: Vec<_> = y0.iter().map(|_| 1.0).collect();
+            let lcoefs: Vec<_> = y0.iter().map(|&n0| -2.0 * n0 as f64).collect();
+            let lbond = 1.0 - y0.iter().map(|n0| n0.pow(2) as f64).sum::<f64>();
+            kc.add_con_quadratic_struct_one(c, &vars, &vars, &qcoefs)?;
+            kc.add_con_linear_struct_one(c, &vars, &lcoefs)?;
+            kc.set_con_lobnd(c, lbond)?;
+        }
+
         let index_cons = self.process.setup_knitro(&kc, x0)?;
         let cb = kc.add_eval_callback(true, &index_cons, self)?;
         if let Some(options) = options {
@@ -149,7 +149,7 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
         let x = kc.get_var_primal_values_all()?;
         let (y, x) = x.split_at(n_y);
         let y: Vec<_> = y.iter().map(|y| *y as usize).collect();
-        println!("{} {t} {y:?} {x:?}", self.chemical.unwrap_or(""));
+        println!("{t} {y:?} {x:?}");
         Ok(OptimizationResult::new(t, y, x.to_vec()))
     }
 }
@@ -169,66 +169,5 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
             self.add_solution(result);
         }
         Ok(())
-    }
-}
-
-impl<R: PropertyModel<SegmentAndBondCount> + Sync, P: ProcessModel + Sync>
-    MetaOptimizationProblem<R, P>
-{
-    pub fn solve_knitro(&mut self, x0: &[f64], n_solutions: usize, options: Option<&str>) {
-        let candidates = self
-            .molecules
-            .par_iter()
-            .map(|(chemical, molecule)| {
-                let mut problem = self.callback(molecule, &[], chemical);
-                (
-                    chemical.clone(),
-                    vec![problem.solve_knitro_once(x0, options).unwrap()],
-                )
-            })
-            .collect();
-        self.candidates = candidates;
-
-        for _ in 0..n_solutions {
-            let chemical = self.best_candidate();
-            let mut problem = self.callback(
-                &self.molecules[&chemical],
-                &self.candidates[&chemical],
-                &chemical,
-            );
-            let result = problem.solve_knitro_once(x0, options).unwrap();
-            self.update_candidates(&chemical, result);
-        }
-    }
-
-    pub fn find_best_knitro(&mut self, x0: &[f64], depth: usize, options: Option<&str>) {
-        let candidates = self
-            .molecules
-            .par_iter()
-            .map(|(chemical, molecule)| {
-                let mut results = vec![];
-                for _ in 0..depth {
-                    let mut problem = self.callback(molecule, &results, chemical);
-                    let result = problem.solve_knitro_once(x0, options).unwrap();
-                    results.push(result);
-                }
-                (chemical.clone(), results)
-            })
-            .collect();
-        self.candidates = candidates;
-
-        let mut best = 0.0;
-        let mut best_result = None;
-        let mut best_chemical = String::new();
-        for (chemical, results) in &self.candidates {
-            for result in results {
-                if result.target < best {
-                    best = result.target;
-                    best_result = Some(result.clone());
-                    best_chemical = chemical.clone();
-                }
-            }
-        }
-        self.solutions = vec![(best_chemical, best_result.unwrap())];
     }
 }

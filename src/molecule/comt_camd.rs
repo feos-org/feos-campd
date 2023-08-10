@@ -46,7 +46,6 @@ impl MolecularRepresentation for CoMTCAMD {
 mod knitro {
     use super::*;
     use crate::knitro::MolecularRepresentationKnitro;
-    use crate::OptimizationResult;
     use knitro_rs::{Knitro, KnitroError, KN_VARTYPE_BINARY, KN_VARTYPE_INTEGER};
 
     const STRUCTURES: [&str; 6] = ["alkane", "alkene", "arom", "hex", "pent", "P"];
@@ -58,28 +57,12 @@ mod knitro {
     ];
 
     impl MolecularRepresentationKnitro for CoMTCAMD {
-        fn setup_knitro(
-            &self,
-            kc: &Knitro,
-            solutions: &[OptimizationResult],
-        ) -> Result<(), KnitroError> {
+        fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
             // group counts
             let n = kc.add_vars(GROUPS.len(), Some(KN_VARTYPE_INTEGER))?;
             for (&i, &nmax) in n.iter().zip(NMAX.iter()) {
                 kc.set_var_lobnd(i, 0.0)?;
                 kc.set_var_upbnd(i, nmax as f64)?;
-            }
-
-            // integer cuts
-            for solution in solutions {
-                let n0 = &solution.y[..GROUPS.len()];
-                let c = kc.add_con()?;
-                let qcoefs: Vec<_> = n0.iter().map(|_| 1.0).collect();
-                let lcoefs: Vec<_> = n0.iter().map(|&n0| -2.0 * n0 as f64).collect();
-                let lbond = 1.0 - n0.iter().map(|n0| n0.pow(2) as f64).sum::<f64>();
-                kc.add_con_quadratic_struct_one(c, &n, &n, &qcoefs)?;
-                kc.add_con_linear_struct_one(c, &n, &lcoefs)?;
-                kc.set_con_lobnd(c, lbond)?;
             }
             let n: HashMap<_, _> = GROUPS.iter().copied().zip(n.into_iter()).collect();
 
