@@ -46,9 +46,9 @@ impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
 impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
     pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
     where
-        for<'a> M: Deserialize<'a> + Default,
-        for<'a> R: Deserialize<'a> + Default,
-        for<'a> P: Deserialize<'a> + Default,
+        for<'a> M: Deserialize<'a>,
+        for<'a> R: Deserialize<'a>,
+        for<'a> P: Deserialize<'a>,
     {
         Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
     }
