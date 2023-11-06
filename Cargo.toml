@@ -12,8 +12,8 @@ keywords = ["process_engineering", "molecular_design", "optimization"]
 categories = ["science"]
 
 [dependencies]
-feos-core = { path = "../feos/feos-core" }
-feos = { path = "../feos", features = ["pcsaft", "gc_pcsaft"] }
+feos-core = "0.5"
+feos = { version = "0.5", features = ["pcsaft", "gc_pcsaft"] }
 ndarray = "0.15"
 petgraph = "0.6"
 serde = "1.0"

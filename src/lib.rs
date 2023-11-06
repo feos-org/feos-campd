@@ -2,8 +2,10 @@
 #![allow(clippy::too_many_arguments)]
 use feos_core::parameter::ParameterError;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
@@ -14,38 +16,34 @@ pub use molecule::{
     CoMTCAMD, FixedMolecule, GroupCount, MolecularRepresentation, SegmentAndBondCount,
     SuperMolecule, SuperMoleculeDisjunct,
 };
-pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
+pub use property::{
+    GcPcSaftPropertyModel, PcSaftFixedPropertyModel, PcSaftPropertyModel, PropertyModel,
+};
 
 #[cfg(feature = "knitro_rs")]
 pub mod knitro;
 
 /// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel](process::ProcessModel).
 #[derive(Serialize, Deserialize)]
-pub struct OptimizationProblem<M, R, P> {
-    pub molecules: Vec<M>,
+pub struct OptimizationProblem<M, R, P, const N: usize> {
+    pub molecules: M,
     pub property_model: R,
     pub process: P,
-    pub solutions: Vec<OptimizationResult>,
+    pub solutions: HashSet<OptimizationResult>,
 }
 
-impl<M, R, P> OptimizationProblem<M, R, P> {
-    pub fn new(molecules: Vec<M>, property_model: R, process: P) -> Self {
+impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
+    pub fn new(molecules: M, property_model: R, process: P) -> Self {
         Self {
             molecules,
             property_model,
             process,
-            solutions: vec![],
+            solutions: HashSet::new(),
         }
     }
+}
 
-    pub fn new_pure(molecule: M, property_model: R, process: P) -> Self {
-        Self::new(vec![molecule], property_model, process)
-    }
-
-    pub fn add_solution(&mut self, solutions: OptimizationResult) {
-        self.solutions.push(solutions);
-    }
-
+impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
     pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
     where
         for<'a> M: Deserialize<'a> + Default,
@@ -72,18 +70,38 @@ impl<M, R, P> OptimizationProblem<M, R, P> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct OptimizationResult {
     pub target: f64,
+    pub smiles: Vec<String>,
     pub y: Vec<usize>,
     pub x: Vec<f64>,
 }
 
 impl OptimizationResult {
-    pub fn new(target: f64, y: Vec<usize>, x: Vec<f64>) -> Self {
-        Self { target, y, x }
+    pub fn new(target: f64, smiles: Vec<String>, y: Vec<usize>, x: Vec<f64>) -> Self {
+        Self {
+            target,
+            smiles,
+            y,
+            x,
+        }
     }
 }
 
 impl fmt::Display for OptimizationResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl PartialEq for OptimizationResult {
+    fn eq(&self, other: &Self) -> bool {
+        self.y == other.y
+    }
+}
+
+impl Eq for OptimizationResult {}
+
+impl Hash for OptimizationResult {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.y.hash(state);
     }
 }

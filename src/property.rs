@@ -15,26 +15,48 @@ use std::sync::Arc;
 pub trait PropertyModel<C> {
     type EquationOfState: Residual + IdealGas;
 
-    fn build_eos(&self, chemical_records: Vec<C>) -> Result<Self::EquationOfState, ParameterError>;
+    fn build_eos(
+        &self,
+        chemical_records: Vec<C>,
+    ) -> Result<Arc<Self::EquationOfState>, ParameterError>;
 }
 
-/// The (homosegmented) group contribution PC-SAFT model.
+/// A generic group contribution method
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PcSaftPropertyModel {
-    pcsaft: Vec<SegmentRecord<PcSaftRecord>>,
-    joback: Vec<SegmentRecord<JobackRecord>>,
-    binary: Option<Vec<BinaryRecord<String, PcSaftBinaryRecord>>>,
+pub struct GcPropertyModel<I, R, B> {
+    residual: Vec<SegmentRecord<R>>,
+    ideal_gas: Vec<SegmentRecord<I>>,
+    binary: Option<Vec<BinaryRecord<String, B>>>,
 }
 
-impl PcSaftPropertyModel {
-    pub fn new<P: AsRef<Path>>(file_pcsaft: P, file_joback: P) -> Result<Self, ParameterError> {
+impl<I, R, B: From<f64>> GcPropertyModel<I, R, B>
+where
+    for<'de> R: Deserialize<'de>,
+    for<'de> I: Deserialize<'de>,
+{
+    pub fn new<P: AsRef<Path>>(
+        file_residual: P,
+        file_ideal_gas: P,
+        file_binary: Option<P>,
+    ) -> Result<Self, ParameterError> {
         Ok(Self {
-            pcsaft: SegmentRecord::from_json(file_pcsaft)?,
-            joback: SegmentRecord::from_json(file_joback)?,
-            binary: None,
+            residual: SegmentRecord::from_json(file_residual)?,
+            ideal_gas: SegmentRecord::from_json(file_ideal_gas)?,
+            binary: file_binary
+                .map(|f| BinaryRecord::<String, f64>::from_json(f))
+                .transpose()?
+                .map(|binary| {
+                    binary
+                        .into_iter()
+                        .map(|br| BinaryRecord::new(br.id1, br.id2, br.model_record.into()))
+                        .collect()
+                }),
         })
     }
 }
+
+/// The (homosegmented) group contribution PC-SAFT model.
+pub type PcSaftPropertyModel = GcPropertyModel<JobackRecord, PcSaftRecord, PcSaftBinaryRecord>;
 
 impl<T: SegmentCount<Count = f64> + Clone> PropertyModel<T> for PcSaftPropertyModel {
     type EquationOfState = EquationOfState<Joback, PcSaft>;
@@ -42,60 +64,46 @@ impl<T: SegmentCount<Count = f64> + Clone> PropertyModel<T> for PcSaftPropertyMo
     fn build_eos(
         &self,
         chemical_records: Vec<T>,
-    ) -> Result<EquationOfState<Joback, PcSaft>, ParameterError> {
+    ) -> Result<Arc<EquationOfState<Joback, PcSaft>>, ParameterError> {
         let pcsaft = PcSaft::new(Arc::new(PcSaftParameters::from_segments(
             chemical_records.clone(),
-            self.pcsaft.clone(),
+            self.residual.clone(),
             self.binary.clone(),
         )?));
         let joback = Joback::new(Arc::new(JobackParameters::from_segments(
             chemical_records,
-            self.joback.clone(),
+            self.ideal_gas.clone(),
             None,
         )?));
-        Ok(EquationOfState::new(Arc::new(joback), Arc::new(pcsaft)))
+        Ok(Arc::new(EquationOfState::new(
+            Arc::new(joback),
+            Arc::new(pcsaft),
+        )))
     }
 }
 
-// /// The PC-SAFT equation of state for a fixed molecule.
-// #[derive(Clone, Serialize, Deserialize)]
-// pub struct PcSaftFixedPropertyModel(EquationOfState<Joback, PcSaft>);
+/// The PC-SAFT equation of state for a fixed molecule.
+pub struct PcSaftFixedPropertyModel(Arc<EquationOfState<Joback, PcSaft>>);
 
-// impl PcSaftFixedPropertyModel {
-//     pub fn new(pcsaft: Vec<PureRecord<PcSaftRecord>>, joback: Vec<JobackRecord>) -> Self {
-//         Self { pcsaft, joback }
-//     }
-// }
+impl PcSaftFixedPropertyModel {
+    pub fn new(eos: &Arc<EquationOfState<Joback, PcSaft>>) -> Self {
+        Self(eos.clone())
+    }
+}
 
-// impl PropertyModel<()> for PcSaftFixedPropertyModel {
-//     type Residual = PcSaft;
-//     type IdealGas = Joback;
+impl PropertyModel<()> for PcSaftFixedPropertyModel {
+    type EquationOfState = EquationOfState<Joback, PcSaft>;
 
-//     fn build_eos(&self, _: Vec<()>) -> Result<EquationOfState<Joback, PcSaft>, ParameterError> {
-//         let params = PcSaftParameters::from_records(self.pcsaft.clone(), self.binary.clone())?;
-//         let pcsaft = PcSaft::new(Arc::new(params));
-//         let joback = Joback::new(Arc::new(JobackParameters::from_model_records(
-//             self.joback.clone(),
-//         )?));
-//         Ok(EquationOfState::new(Arc::new(joback), Arc::new(pcsaft)))
-//     }
-// }
+    fn build_eos(
+        &self,
+        _: Vec<()>,
+    ) -> Result<Arc<EquationOfState<Joback, PcSaft>>, ParameterError> {
+        Ok(self.0.clone())
+    }
+}
 
 /// The heterosegmented gc-PC-SAFT equation of state.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct GcPcSaftPropertyModel(
-    Vec<SegmentRecord<GcPcSaftRecord>>,
-    Vec<SegmentRecord<JobackRecord>>,
-);
-
-impl GcPcSaftPropertyModel {
-    pub fn new<P: AsRef<Path>>(file_gc_pcsaft: P, file_joback: P) -> Result<Self, ParameterError> {
-        Ok(Self(
-            SegmentRecord::from_json(file_gc_pcsaft)?,
-            SegmentRecord::from_json(file_joback)?,
-        ))
-    }
-}
+pub type GcPcSaftPropertyModel = GcPropertyModel<JobackRecord, GcPcSaftRecord, f64>;
 
 impl PropertyModel<SegmentAndBondCount> for GcPcSaftPropertyModel {
     type EquationOfState = EquationOfState<Joback, GcPcSaft>;
@@ -103,18 +111,21 @@ impl PropertyModel<SegmentAndBondCount> for GcPcSaftPropertyModel {
     fn build_eos(
         &self,
         chemical_records: Vec<SegmentAndBondCount>,
-    ) -> Result<EquationOfState<Joback, GcPcSaft>, ParameterError> {
+    ) -> Result<Arc<EquationOfState<Joback, GcPcSaft>>, ParameterError> {
         let gc_pcsaft = GcPcSaft::new(Arc::new(GcPcSaftEosParameters::from_segments(
             chemical_records.clone(),
-            self.0.clone(),
-            None,
+            self.residual.clone(),
+            self.binary.clone(),
         )?));
         let joback = Joback::new(Arc::new(JobackParameters::from_segments(
             chemical_records,
-            self.1.clone(),
+            self.ideal_gas.clone(),
             None,
         )?));
-        Ok(EquationOfState::new(Arc::new(joback), Arc::new(gc_pcsaft)))
+        Ok(Arc::new(EquationOfState::new(
+            Arc::new(joback),
+            Arc::new(gc_pcsaft),
+        )))
     }
 }
 

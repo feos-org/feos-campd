@@ -256,7 +256,7 @@ impl Knitro {
         Ok(nC as usize)
     }
 
-    pub fn add_eval_callback<C: Callback>(
+    pub fn add_eval_callback<C: EvalCallback>(
         &self,
         evalObj: bool,
         indexCons: &[i32],
@@ -271,7 +271,7 @@ impl Knitro {
                     evalObj as i32,
                     indexCons.len() as i32,
                     indexCons.as_ptr(),
-                    get_callback(callback),
+                    get_eval_callback(callback),
                     &mut cb,
                 ),
             )?;
@@ -279,7 +279,7 @@ impl Knitro {
         Ok(KnitroCallback(cb))
     }
 
-    pub fn set_cb_user_params<C: Callback>(
+    pub fn set_cb_user_params<C: EvalCallback>(
         &self,
         cb: KnitroCallback,
         userParams: &mut C,
@@ -332,11 +332,11 @@ impl Knitro {
     }
 }
 
-pub trait Callback {
+pub trait EvalCallback {
     fn callback(&self, x: &[f64], c: &mut [f64]) -> f64;
 }
 
-unsafe extern "C" fn callback_wrapper<C: Callback>(
+unsafe extern "C" fn eval_callback_wrapper<C: EvalCallback>(
     kc: KN_context_ptr,
     cb: CB_context_ptr,
     evalRequest: KN_eval_request_ptr,
@@ -361,9 +361,6 @@ unsafe extern "C" fn callback_wrapper<C: Callback>(
     0
 }
 
-pub fn get_callback<C>(_: &C) -> KN_eval_callback
-where
-    C: Callback,
-{
-    Some(callback_wrapper::<C>)
+pub fn get_eval_callback<C: EvalCallback>(_: &C) -> KN_eval_callback {
+    Some(eval_callback_wrapper::<C>)
 }

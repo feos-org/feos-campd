@@ -134,7 +134,7 @@ impl<E: Residual + IdealGas> Process<E> {
             .filter_map(|p| {
                 p.utility_temperature.map(|[t, dt]| {
                     let s = dt.signum() * KELVIN;
-                    (t - p.state.temperature() - dt).into_unit(dt + s)
+                    (t - p.state.temperature() - dt).convert_into(dt + s)
                 })
             })
             .collect()
@@ -197,7 +197,7 @@ impl From<UtilitySpecification> for UtilitySpecificationJSON {
                 UtilitySpecificationJSON::ConstantTemperature
             }
             UtilitySpecification::HeatCapacityRate(c) => {
-                UtilitySpecificationJSON::HeatCapacityRate(c.into_unit(KILO * WATT / KELVIN))
+                UtilitySpecificationJSON::HeatCapacityRate(c.convert_into(KILO * WATT / KELVIN))
             }
             UtilitySpecification::OutletTemperature(t) => {
                 UtilitySpecificationJSON::OutletTemperature(t / CELSIUS)
@@ -237,8 +237,8 @@ struct UtilityJSON {
 #[serde(from = "UtilityJSON")]
 pub struct Utility {
     pub temperature: Temperature<f64>,
-    specification: UtilitySpecification,
-    min_approach_temperature: Temperature<f64>,
+    pub specification: UtilitySpecification,
+    pub min_approach_temperature: Temperature<f64>,
 }
 
 impl From<Utility> for UtilityJSON {
@@ -246,7 +246,7 @@ impl From<Utility> for UtilityJSON {
         Self {
             temperature: utility.temperature / CELSIUS,
             specification: utility.specification,
-            min_approach_temperature: utility.min_approach_temperature.into_unit(KELVIN),
+            min_approach_temperature: utility.min_approach_temperature.convert_into(KELVIN),
         }
     }
 }
@@ -362,7 +362,7 @@ impl ProcessStep {
                 let s0 = states[0].state.specific_entropy();
                 let s1 = states[1].state.specific_entropy();
 
-                let k = (s1 - s0) / t1.into_unit(t0).ln();
+                let k = (s1 - s0) / t1.convert_into(t0).ln();
                 let temperature = Temperature::linspace(t0, t1, 50);
                 let entropy = s0 + (&temperature / t0).into_value().mapv(f64::ln) * k;
                 ProcessPlot {

@@ -22,38 +22,20 @@ impl SuperMoleculeDisjunct {
         Self { supermolecules }
     }
 
-    pub fn smiles(&self, y: Vec<usize>) -> String {
-        let (y, c) = y.split_at(y.len() - self.supermolecules.len());
-        for (&c, supermolecule) in c.iter().zip(self.supermolecules.iter()) {
-            if c == 1 {
-                return supermolecule.smiles(y.to_vec());
-            }
-        }
-        unreachable!();
+    pub fn non_associating(size: usize) -> Self {
+        let supermolecules = vec![
+            SuperMolecule::alkane(size),
+            SuperMolecule::alkene(size),
+            SuperMolecule::alkyne(size),
+            SuperMolecule::methylether(size),
+            SuperMolecule::ketone(size),
+        ];
+        Self { supermolecules }
     }
 }
 
-impl MolecularRepresentation for SuperMoleculeDisjunct {
+impl MolecularRepresentation<1> for SuperMoleculeDisjunct {
     type ChemicalRecord = SegmentAndBondCount;
-
-    fn build(&self, y: Vec<f64>) -> Self::ChemicalRecord {
-        let (y, c) = y.split_at(y.len() - self.supermolecules.len());
-        // println!("{c:?}\n{y:?}");
-        let mut cr = SegmentAndBondCount::new(HashMap::new(), HashMap::new());
-        for (&c, supermolecule) in c.iter().zip(self.supermolecules.iter()) {
-            if c == 0.0 {
-                continue;
-            }
-            let SegmentAndBondCount { segments, bonds } = supermolecule.build(y.to_vec());
-            for (segment, count) in segments.into_iter() {
-                *cr.segments.entry(segment).or_insert(0.0) += count * c;
-            }
-            for (bond, count) in bonds.into_iter() {
-                *cr.bonds.entry(bond).or_insert(0.0) += count * c;
-            }
-        }
-        cr
-    }
 
     fn variables(&self) -> usize {
         self.supermolecules
@@ -63,6 +45,35 @@ impl MolecularRepresentation for SuperMoleculeDisjunct {
             .unwrap()
             + self.supermolecules.len()
     }
+
+    fn build(&self, y: &[f64]) -> [Self::ChemicalRecord; 1] {
+        let (y, c) = y.split_at(y.len() - self.supermolecules.len());
+        // println!("{c:?}\n{y:?}");
+        let mut cr = SegmentAndBondCount::new(HashMap::new(), HashMap::new());
+        for (&c, supermolecule) in c.iter().zip(self.supermolecules.iter()) {
+            if c == 0.0 {
+                continue;
+            }
+            let [SegmentAndBondCount { segments, bonds }] = supermolecule.build(y);
+            for (segment, count) in segments.into_iter() {
+                *cr.segments.entry(segment).or_insert(0.0) += count * c;
+            }
+            for (bond, count) in bonds.into_iter() {
+                *cr.bonds.entry(bond).or_insert(0.0) += count * c;
+            }
+        }
+        [cr]
+    }
+
+    fn smiles(&self, y: &[usize]) -> [String; 1] {
+        let (y, c) = y.split_at(y.len() - self.supermolecules.len());
+        for (&c, supermolecule) in c.iter().zip(self.supermolecules.iter()) {
+            if c == 1 {
+                return supermolecule.smiles(y);
+            }
+        }
+        unreachable!();
+    }
 }
 
 #[cfg(feature = "knitro_rs")]
@@ -71,11 +82,13 @@ mod knitro {
     use crate::knitro::MolecularRepresentationKnitro;
     use knitro_rs::{Knitro, KnitroError, KN_VARTYPE_BINARY};
 
-    impl MolecularRepresentationKnitro for SuperMoleculeDisjunct {
+    impl MolecularRepresentationKnitro<1> for SuperMoleculeDisjunct {
         fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
             // structure variables
             let index_vars = kc.add_vars(self.variables(), Some(KN_VARTYPE_BINARY))?;
             let (y, c) = index_vars.split_at(index_vars.len() - self.supermolecules.len());
+            kc.set_var_primal_initial_values(y, &vec![0.5; y.len()])?;
+            kc.set_var_primal_initial_values(c, &vec![1.0 / c.len() as f64; c.len()])?;
 
             // disjunction
             let coefs = vec![1.0; c.len()];
