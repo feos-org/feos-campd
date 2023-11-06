@@ -27,14 +27,14 @@ struct OrganicRankineCycleJSON {
 #[serde(from = "OrganicRankineCycleJSON")]
 #[serde(into = "OrganicRankineCycleJSON")]
 pub struct OrganicRankineCycle {
-    heat_source: Utility,
-    isentropic_turbine_efficiency: f64,
-    isentropic_pump_efficiency: f64,
-    min_abs_pressure: Pressure<f64>,
-    min_red_pressure: f64,
-    max_abs_pressure: Pressure<f64>,
-    max_red_pressure: f64,
-    cooling: Utility,
+    pub heat_source: Utility,
+    pub isentropic_turbine_efficiency: f64,
+    pub isentropic_pump_efficiency: f64,
+    pub min_abs_pressure: Pressure<f64>,
+    pub min_red_pressure: f64,
+    pub max_abs_pressure: Pressure<f64>,
+    pub max_red_pressure: f64,
+    pub cooling: Utility,
 }
 
 impl From<OrganicRankineCycleJSON> for OrganicRankineCycle {
@@ -58,9 +58,9 @@ impl From<OrganicRankineCycle> for OrganicRankineCycleJSON {
             heat_source: orc.heat_source,
             isentropic_turbine_efficiency: orc.isentropic_turbine_efficiency,
             isentropic_pump_efficiency: orc.isentropic_pump_efficiency,
-            min_abs_pressure: orc.min_abs_pressure.into_unit(BAR),
+            min_abs_pressure: orc.min_abs_pressure.convert_into(BAR),
             min_red_pressure: orc.min_red_pressure,
-            max_abs_pressure: orc.max_abs_pressure.into_unit(BAR),
+            max_abs_pressure: orc.max_abs_pressure.convert_into(BAR),
             max_red_pressure: orc.max_red_pressure,
             cooling: orc.cooling,
         }
@@ -126,13 +126,13 @@ impl ProcessModel for OrganicRankineCycle {
             [Some(0.0), None, None],
             // Absolute pressure (bar)
             [
-                Some(self.min_abs_pressure.into_unit(BAR)),
-                Some(self.max_abs_pressure.into_unit(BAR)),
+                Some(self.min_abs_pressure.convert_into(BAR)),
+                Some(self.max_abs_pressure.convert_into(BAR)),
                 None,
             ],
             [
-                Some(self.min_abs_pressure.into_unit(BAR)),
-                Some(self.max_abs_pressure.into_unit(BAR)),
+                Some(self.min_abs_pressure.convert_into(BAR)),
+                Some(self.max_abs_pressure.convert_into(BAR)),
                 None,
             ],
             [Some(1.0), None, None],
@@ -186,15 +186,15 @@ impl ProcessModel for OrganicRankineCycle {
         process.add_utility(&condenser, self.cooling);
 
         // Target
-        let target = process.net_power().unwrap().into_unit(MEGA * WATT);
+        let target = process.net_power().unwrap().convert_into(MEGA * WATT);
 
         // Pinch constraints
         let mut constraints = process.pinch_constraints();
 
         // Absolute pressure constraints
-        constraints.push(p_cond.into_unit(BAR));
-        constraints.push(p_evap.into_unit(BAR));
-        constraints.push(p_evap.into_unit(p_cond));
+        constraints.push(p_cond.convert_into(BAR));
+        constraints.push(p_evap.convert_into(BAR));
+        constraints.push(p_evap.convert_into(p_cond));
 
         Ok((process, target, constraints))
     }

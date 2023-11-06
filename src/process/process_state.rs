@@ -99,7 +99,7 @@ impl<E: Residual + IdealGas> ProcessState<E> {
             if molar_enthalpy > hl && molar_enthalpy < hv {
                 return Ok(Self::TwoPhase(
                     vle.clone(),
-                    (molar_enthalpy - hl).into_unit(hv - hl),
+                    (molar_enthalpy - hl).convert_into(hv - hl),
                     mass_flow_rate,
                 ));
             }
@@ -125,7 +125,7 @@ impl<E: Residual + IdealGas> ProcessState<E> {
             if molar_entropy > sl && molar_entropy < sv {
                 return Ok(Self::TwoPhase(
                     vle.clone(),
-                    (molar_entropy - sl).into_unit(sv - sl),
+                    (molar_entropy - sl).convert_into(sv - sl),
                     mass_flow_rate,
                 ));
             }

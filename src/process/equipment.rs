@@ -46,10 +46,7 @@ impl<E: Residual + IdealGas> Process<E> {
         let liquid = self.add_step(vapor, liquid_state, ProcessStep::PhaseChange);
         let subcooled = subcooled_state.map(|s| self.add_step(liquid, s, ProcessStep::Isobaric));
 
-        let states = [feed, vapor, liquid]
-            .into_iter()
-            .chain(subcooled.into_iter())
-            .collect();
+        let states = [feed, vapor, liquid].into_iter().chain(subcooled).collect();
 
         Ok(Equipment { states })
     }
@@ -87,7 +84,7 @@ impl<E: Residual + IdealGas> Process<E> {
 
         let states = [feed, liquid, vapor]
             .into_iter()
-            .chain(superheated.into_iter())
+            .chain(superheated)
             .collect();
 
         Ok(Equipment { states })

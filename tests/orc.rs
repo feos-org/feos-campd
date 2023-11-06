@@ -39,18 +39,15 @@ fn test_validation() -> Result<(), KnitroError> {
     let molecule = SuperMolecule::alkane(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
     let pcsaft =
-        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json").unwrap();
-    let mut problem = OptimizationProblem::new_pure(molecule, pcsaft, orc);
+        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json", None)
+            .unwrap();
+    let mut problem = OptimizationProblem::new(molecule, pcsaft, orc);
     #[cfg(feature = "knitro_13")]
     let options = Some("tests/options_13.opt");
     #[cfg(feature = "knitro_12")]
     let options = Some("tests/options_12.opt");
-    problem.solve_knitro(&[0.786, -4.5, -1.2, 0.8], 1, options)?;
-    assert_relative_eq!(
-        -1.5905756277031002,
-        problem.solutions[0].target,
-        max_relative = 1e-5
-    );
+    let solution = problem.solve_knitro_once(&[0.786, -4.5, -1.2, 0.8], options)?;
+    assert_relative_eq!(-1.5905756277031002, solution.target, max_relative = 1e-5);
     Ok(())
 }
 
@@ -59,18 +56,15 @@ fn test_validation() -> Result<(), KnitroError> {
 fn test_comt_camd() -> Result<(), KnitroError> {
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
     let pcsaft =
-        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json").unwrap();
-    let mut problem = OptimizationProblem::new_pure(CoMTCAMD, pcsaft, orc);
+        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json", None)
+            .unwrap();
+    let mut problem = OptimizationProblem::new(CoMTCAMD, pcsaft, orc);
     #[cfg(feature = "knitro_13")]
     let options = Some("tests/options_13.opt");
     #[cfg(feature = "knitro_12")]
     let options = Some("tests/options_12.opt");
-    problem.solve_knitro(&[0.786, -4.5, -1.2, 0.8], 1, options)?;
-    assert_relative_eq!(
-        -1.5905756277031002,
-        problem.solutions[0].target,
-        max_relative = 1e-5
-    );
+    let solution = problem.solve_knitro_once(&[0.786, -4.5, -1.2, 0.8], options)?;
+    assert_relative_eq!(-1.5905756277031002, solution.target, max_relative = 1e-5);
     Ok(())
 }
 
@@ -80,34 +74,31 @@ fn test_supermolecule_disjunct() -> Result<(), KnitroError> {
     let molecule = SuperMoleculeDisjunct::new(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
     let pcsaft =
-        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json").unwrap();
-    let mut problem = OptimizationProblem::new_pure(molecule, pcsaft, orc);
+        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json", None)
+            .unwrap();
+    let mut problem = OptimizationProblem::new(molecule, pcsaft, orc);
     #[cfg(feature = "knitro_13")]
     let options = Some("tests/options_13.opt");
     #[cfg(feature = "knitro_12")]
     let options = Some("tests/options_12.opt");
-    problem.solve_knitro(&[0.786, -4.5, -1.2, 0.8], 1, options)?;
-    assert_relative_eq!(
-        -1.5905756277031002,
-        problem.solutions[0].target,
-        max_relative = 1e-5
-    );
+    let solution = problem.solve_knitro_once(&[0.786, -4.5, -1.2, 0.8], options)?;
+    assert_relative_eq!(-1.5905756277031002, solution.target, max_relative = 1e-5);
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "knitro_rs")]
-fn test_supermolecule_mix() -> Result<(), KnitroError> {
-    let molecule = vec![SuperMolecule::alcohol(5), SuperMolecule::ketone(5)];
+fn test_supermolecule_mix() {
+    let molecules = (SuperMolecule::alcohol(5), SuperMolecule::ketone(5));
     let pcsaft =
-        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json").unwrap();
-    let mut problem = OptimizationProblem::new(molecule, pcsaft, NoModel);
+        PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json", None)
+            .unwrap();
+    let mut problem = OptimizationProblem::new(molecules, pcsaft, NoModel);
     #[cfg(feature = "knitro_13")]
     let options = Some("tests/options_13.opt");
     #[cfg(feature = "knitro_12")]
     let options = Some("tests/options_12.opt");
-    problem.solve_knitro(&[], 10, options)?;
-    Ok(())
+    problem.solve_knitro(&[], 10, options)
 }
 
 struct NoModel;

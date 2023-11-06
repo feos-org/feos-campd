@@ -15,7 +15,7 @@ categories = ["science"]
 [dependencies]
 
 [build-dependencies]
-bindgen = "0.61"
+bindgen = "0.69"
 
 [features]
 knitro_12 = []

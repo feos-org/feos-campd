@@ -1,5 +1,6 @@
 use super::MolecularRepresentation;
 use feos_core::parameter::{Identifier, SegmentCount};
+use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::HashMap};
 
 const GROUPS: [&str; 22] = [
@@ -22,23 +23,28 @@ impl SegmentCount for GroupCount {
     }
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct CoMTCAMD;
 
-impl MolecularRepresentation for CoMTCAMD {
+impl MolecularRepresentation<1> for CoMTCAMD {
     type ChemicalRecord = GroupCount;
 
-    fn build(&self, y: Vec<f64>) -> Self::ChemicalRecord {
-        GroupCount(
+    fn build(&self, y: &[f64]) -> [Self::ChemicalRecord; 1] {
+        [GroupCount(
             GROUPS
                 .iter()
                 .map(|g| g.to_string())
                 .zip(y.iter().copied())
                 .collect(),
-        )
+        )]
     }
 
     fn variables(&self) -> usize {
         GROUPS.len() + 6
+    }
+
+    fn smiles(&self, _: &[usize]) -> [String; 1] {
+        [String::new()]
     }
 }
 
@@ -56,7 +62,7 @@ mod knitro {
         10, 10, 10, 10, 1, 2, 2, 1, 6, 6, 5, 5, 6, 6, 1, 1, 1, 1, 1, 1, 1, 1,
     ];
 
-    impl MolecularRepresentationKnitro for CoMTCAMD {
+    impl MolecularRepresentationKnitro<1> for CoMTCAMD {
         fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
             // group counts
             let n = kc.add_vars(GROUPS.len(), Some(KN_VARTYPE_INTEGER))?;
@@ -64,14 +70,14 @@ mod knitro {
                 kc.set_var_lobnd(i, 0.0)?;
                 kc.set_var_upbnd(i, nmax as f64)?;
             }
-            let n: HashMap<_, _> = GROUPS.iter().copied().zip(n.into_iter()).collect();
+            let n: HashMap<_, _> = GROUPS.iter().copied().zip(n).collect();
 
             // structure variables
             let y = kc.add_vars(STRUCTURES.len(), Some(KN_VARTYPE_BINARY))?;
 
             // Exactly one structure can be active
             add_eq_constraint(kc, &y, &vec![1.0; y.len()], 1.0)?;
-            let y: HashMap<_, _> = STRUCTURES.iter().copied().zip(y.into_iter()).collect();
+            let y: HashMap<_, _> = STRUCTURES.iter().copied().zip(y).collect();
 
             // Connect molecular structures and segments
             // Alkenes

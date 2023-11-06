@@ -1,17 +1,40 @@
-#![allow(clippy::missing_safety_doc)]
 use crate::process::ProcessModel;
 use crate::*;
 use feos_core::EosResult;
 use knitro_rs::*;
-use std::sync::Arc;
 
-pub trait MolecularRepresentationKnitro: MolecularRepresentation {
+pub trait MolecularRepresentationKnitro<const N: usize>: MolecularRepresentation<N> {
     fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError>;
 }
 
-impl MolecularRepresentationKnitro for FixedMolecule {
+impl<C: Clone> MolecularRepresentationKnitro<1> for FixedMolecule<C> {
     fn setup_knitro(&self, _: &Knitro) -> Result<(), KnitroError> {
         Ok(())
+    }
+}
+
+pub trait MixtureConstraints {
+    fn setup_knitro_mixture(&self, kc: &Knitro) -> Result<(), KnitroError>;
+}
+
+impl<C, M> MixtureConstraints for (FixedMolecule<C>, M) {
+    fn setup_knitro_mixture(&self, _: &Knitro) -> Result<(), KnitroError> {
+        Ok(())
+    }
+}
+
+impl<
+        C,
+        M1: MolecularRepresentationKnitro<1, ChemicalRecord = C>,
+        M2: MolecularRepresentationKnitro<1, ChemicalRecord = C>,
+    > MolecularRepresentationKnitro<2> for (M1, M2)
+where
+    (M1, M2): MixtureConstraints,
+{
+    fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
+        self.0.setup_knitro(kc)?;
+        self.1.setup_knitro(kc)?;
+        self.setup_knitro_mixture(kc)
     }
 }
 
@@ -56,28 +79,12 @@ pub trait ProcessModelKnitro: ProcessModel {
 
 impl<T: ProcessModel> ProcessModelKnitro for T {}
 
-struct OptimizationProblemCallback<'a, M, R, P> {
-    molecules: &'a [M],
-    property_model: &'a R,
-    process: &'a P,
-    solutions: &'a [OptimizationResult],
-}
-
-impl<'a, M, R, P> From<&'a OptimizationProblem<M, R, P>>
-    for OptimizationProblemCallback<'a, M, R, P>
-{
-    fn from(problem: &'a OptimizationProblem<M, R, P>) -> Self {
-        Self {
-            molecules: &problem.molecules,
-            property_model: &problem.property_model,
-            process: &problem.process,
-            solutions: &problem.solutions,
-        }
-    }
-}
-
-impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: ProcessModel>
-    Callback for OptimizationProblemCallback<'_, M, R, P>
+impl<
+        M: MolecularRepresentationKnitro<N>,
+        R: PropertyModel<M::ChemicalRecord>,
+        P: ProcessModel,
+        const N: usize,
+    > EvalCallback for OptimizationProblem<M, R, P, N>
 {
     fn callback(&self, x: &[f64], c: &mut [f64]) -> f64 {
         match self.evaluate(x) {
@@ -85,7 +92,8 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
                 c.copy_from_slice(&constraints);
                 target
             }
-            _ => {
+            Err(_) => {
+                // println!("{e}");
                 c.iter_mut().for_each(|c| *c = -1.0);
                 0.0
             }
@@ -93,22 +101,18 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
     }
 }
 
-impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: ProcessModel>
-    OptimizationProblemCallback<'_, M, R, P>
+impl<
+        M: MolecularRepresentationKnitro<N>,
+        R: PropertyModel<M::ChemicalRecord>,
+        P: ProcessModel,
+        const N: usize,
+    > OptimizationProblem<M, R, P, N>
 {
     fn evaluate(&self, x: &[f64]) -> EosResult<(f64, Vec<f64>)> {
-        let n_y = self.molecules.iter().map(|m| m.variables()).sum();
-        let (mut y, x) = x.split_at(n_y);
-        let cr = self
-            .molecules
-            .iter()
-            .map(|molecule| {
-                let (y1, y2) = y.split_at(molecule.variables());
-                y = y2;
-                molecule.build(y1.to_vec())
-            })
-            .collect();
-        let eos = Arc::new(self.property_model.build_eos(cr)?);
+        let n_y = self.molecules.variables();
+        let (y, x) = x.split_at(n_y);
+        let cr = self.molecules.build(y);
+        let eos = self.property_model.build_eos(cr.into())?;
         let (_, target, constraints) = self.process.solve(&eos, x)?;
         Ok((target, constraints))
     }
@@ -118,15 +122,13 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
         x0: &[f64],
         options: Option<&str>,
     ) -> Result<OptimizationResult, KnitroError> {
-        let n_y = self.molecules.iter().map(|m| m.variables()).sum();
+        let n_y = self.molecules.variables();
 
         let kc = Knitro::new()?;
-        self.molecules
-            .iter()
-            .try_for_each(|molecule| molecule.setup_knitro(&kc))?;
+        self.molecules.setup_knitro(&kc)?;
 
         // integer cuts
-        for solution in self.solutions {
+        for solution in self.solutions.iter() {
             let y0 = &solution.y[..n_y];
             let vars = Vec::from_iter(0..n_y as i32);
             let c = kc.add_con()?;
@@ -149,25 +151,34 @@ impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: P
         let x = kc.get_var_primal_values_all()?;
         let (y, x) = x.split_at(n_y);
         let y: Vec<_> = y.iter().map(|y| *y as usize).collect();
-        println!("{t} {y:?} {x:?}");
-        Ok(OptimizationResult::new(t, y, x.to_vec()))
+        let smiles = self.molecules.smiles(&y);
+        // println!("{t} {y:?} {x:?}");
+        Ok(OptimizationResult::new(t, smiles.into(), y, x.to_vec()))
     }
-}
 
-impl<M: MolecularRepresentationKnitro, R: PropertyModel<M::ChemicalRecord>, P: ProcessModel>
-    OptimizationProblem<M, R, P>
-{
-    pub fn solve_knitro(
-        &mut self,
-        x0: &[f64],
-        n_solutions: usize,
-        options: Option<&str>,
-    ) -> Result<(), KnitroError> {
-        for _ in 0..n_solutions {
-            let mut problem = OptimizationProblemCallback::from(&*self);
-            let result = problem.solve_knitro_once(x0, options)?;
-            self.add_solution(result);
+    pub fn solve_knitro(&mut self, x0: &[f64], n_solutions: usize, options: Option<&str>) {
+        for k in 0..n_solutions {
+            if let Ok(result) = self.solve_knitro_once(x0, options) {
+                self.solutions.insert(result.clone());
+                let mut solutions: Vec<_> = self.solutions.iter().collect();
+                solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
+                println!("\nRun {}", k + 1);
+                for (k, solution) in solutions.into_iter().enumerate() {
+                    let k = if solution == &result || solution.target < result.target {
+                        format!("{:3}", k + 1)
+                    } else {
+                        "   ".into()
+                    };
+                    let smiles = match &solution.smiles[..] {
+                        [smiles] => smiles.clone(),
+                        _ => format!("[{}]", solution.smiles.join(", ")),
+                    };
+                    println!(
+                        "{k} {:.7} {:?} {smiles} {:?}",
+                        solution.target, solution.y, solution.x
+                    );
+                }
+            }
         }
-        Ok(())
     }
 }
