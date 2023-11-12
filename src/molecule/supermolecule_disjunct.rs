@@ -146,3 +146,69 @@ mod knitro {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    fn molecule() -> SuperMoleculeDisjunct {
+        SuperMoleculeDisjunct {
+            supermolecules: vec![
+                SuperMolecule::alcohol(5),
+                SuperMolecule::methylether(5),
+                SuperMolecule::ketone(5),
+            ],
+        }
+    }
+
+    #[test]
+    fn test_build() {
+        println!("{}", molecule().variables());
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule().build(&[1.0, 0.8, 0.6, 0.1, 0.3, 0.2, 0.1, 0.5, 0.3, 0.2]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_relative_eq!(segments["CH3"], 1.464);
+        assert_relative_eq!(segments["CH2"], 1.17);
+        assert_relative_eq!(segments[">CH"], 0.218);
+        assert_relative_eq!(segments[">C<"], 0.008);
+        assert_relative_eq!(segments["OH"], 0.5);
+        assert_relative_eq!(segments["OCH3"], 0.3);
+        assert_relative_eq!(segments[">C=O"], 0.06);
+        assert_relative_eq!(segments["CH=O"], 0.14);
+    }
+
+    #[test]
+    fn test_ethanol() {
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule().build(&[1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_eq!(segments["CH3"], 1.0);
+        assert_eq!(segments["CH2"], 1.0);
+        assert_eq!(segments["OH"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["OH".to_string(), "CH2".to_string()]], 1.0);
+    }
+
+    #[test]
+    fn test_2_methoxybutane() {
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule().build(&[1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_eq!(segments["CH3"], 2.0);
+        assert_eq!(segments[">CH"], 1.0);
+        assert_eq!(segments["OCH3"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 2.0);
+        assert_relative_eq!(bonds[&["OCH3".to_string(), ">CH".to_string()]], 1.0);
+    }
+
+    #[test]
+    fn test_acetone() {
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule().build(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_eq!(segments["CH3"], 2.0);
+        assert_eq!(segments[">C=O"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">C=O".to_string()]], 2.0);
+    }
+}
