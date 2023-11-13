@@ -14,7 +14,7 @@ pub mod process;
 mod property;
 pub use molecule::{
     CoMTCAMD, FixedMolecule, GroupCount, MolecularRepresentation, SegmentAndBondCount,
-    SuperMolecule, SuperMoleculeDisjunct,
+    SuperMolecule,
 };
 pub use property::{
     GcPcSaftPropertyModel, PcSaftFixedPropertyModel, PcSaftPropertyModel, PropertyModel,

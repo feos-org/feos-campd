@@ -1,9 +1,10 @@
 use super::polynomial::{Polynomial, Polynomial2};
-use super::MolecularRepresentation;
+use super::{LinearConstraint, MolecularRepresentation, Variable};
 use feos_core::parameter::{Identifier, SegmentCount};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ops::{Add, Mul};
 
 /// The molecular features used in the [GcPcSaftPropertyModel](crate::GcPcSaftPropertyModel).
 #[derive(Clone)]
@@ -27,6 +28,34 @@ impl SegmentCount for SegmentAndBondCount {
 
     fn segment_count(&self) -> Cow<HashMap<String, Self::Count>> {
         Cow::Borrowed(&self.segments)
+    }
+}
+
+impl Add for SegmentAndBondCount {
+    type Output = Self;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        rhs.segments
+            .into_iter()
+            .for_each(|(s, n)| *self.segments.entry(s).or_insert(0.0) += n);
+        rhs.bonds
+            .into_iter()
+            .for_each(|(b, n)| *self.bonds.entry(b).or_insert(0.0) += n);
+        self
+    }
+}
+
+impl Mul<f64> for SegmentAndBondCount {
+    type Output = Self;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        let segments = self
+            .segments
+            .into_iter()
+            .map(|(s, n)| (s, n * rhs))
+            .collect();
+        let bonds = self.bonds.into_iter().map(|(b, n)| (b, n * rhs)).collect();
+        SegmentAndBondCount::new(segments, bonds)
     }
 }
 
@@ -268,16 +297,26 @@ impl SuperMolecule {
         }
     }
 
-    pub fn all(size: usize) -> HashMap<String, Self> {
-        HashMap::from([
-            ("alkane".into(), Self::alkane(size)),
-            ("alkene".into(), Self::alkene(size)),
-            ("alkyne".into(), Self::alkyne(size)),
-            ("alcohol".into(), Self::alcohol(size)),
-            ("methylether".into(), Self::methylether(size)),
-            ("ketone".into(), Self::ketone(size)),
-            ("amine".into(), Self::amine(size)),
-        ])
+    pub fn all(size: usize) -> [Self; 7] {
+        [
+            SuperMolecule::alkane(size),
+            SuperMolecule::alkene(size),
+            SuperMolecule::alkyne(size),
+            SuperMolecule::alcohol(size),
+            SuperMolecule::methylether(size),
+            SuperMolecule::ketone(size),
+            SuperMolecule::amine(size),
+        ]
+    }
+
+    pub fn non_associating(size: usize) -> [Self; 5] {
+        [
+            SuperMolecule::alkane(size),
+            SuperMolecule::alkene(size),
+            SuperMolecule::alkyne(size),
+            SuperMolecule::methylether(size),
+            SuperMolecule::ketone(size),
+        ]
     }
 }
 
@@ -291,7 +330,7 @@ impl SuperMolecule {
 
     pub fn size_constraint(&self) -> (Vec<f64>, f64) {
         (
-            vec![1.0; self.variables()],
+            vec![1.0; self.variables().len()],
             (self.size - self.functional_group.atoms) as f64,
         )
     }
@@ -332,12 +371,35 @@ impl SuperMolecule {
 impl MolecularRepresentation<1> for SuperMolecule {
     type ChemicalRecord = SegmentAndBondCount;
 
-    fn variables(&self) -> usize {
-        self.alkyl_tails()
+    fn variables(&self) -> Vec<Variable> {
+        let n = self
+            .alkyl_tails()
             .iter()
             .filter(|&&s| s > 0)
             .map(|&s| SuperAlkyl::variables(s))
-            .sum::<usize>()
+            .sum::<usize>();
+        vec![Variable::binary(None); n]
+    }
+
+    fn constraints(&self, index_vars: &[i32]) -> Vec<LinearConstraint> {
+        // maximum size
+        let mut constraints = Vec::new();
+        let (coefs, size) = self.size_constraint();
+        constraints.push(LinearConstraint::new(index_vars.to_vec(), coefs).upbnd(size));
+
+        // minimum size
+        constraints.push(LinearConstraint::new(vec![index_vars[0]], vec![1.0]).eqbnd(1.0));
+
+        // bond constraints
+        for bond in self.bond_constraints(index_vars[0]) {
+            constraints.push(LinearConstraint::new(bond.to_vec(), vec![1.0, -1.0]).lobnd(0.0));
+        }
+
+        // symmetry constraints
+        for (index_vars, coefs) in self.symmetry_constraints(index_vars[0]) {
+            constraints.push(LinearConstraint::new(index_vars.to_vec(), coefs.to_vec()).lobnd(0.0));
+        }
+        constraints
     }
 
     fn build(&self, y: &[f64]) -> [SegmentAndBondCount; 1] {
@@ -533,62 +595,10 @@ fn fill_bond_map<const M: usize, const N: usize>(
     }
 }
 
-#[cfg(feature = "knitro_rs")]
-mod knitro {
-    use super::*;
-    use crate::knitro::{MixtureConstraints, MolecularRepresentationKnitro};
-    use knitro_rs::{Knitro, KnitroError, KN_VARTYPE_BINARY};
-
-    impl MolecularRepresentationKnitro<1> for SuperMolecule {
-        fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
-            let n_y = self.variables();
-
-            // binary variables
-            let index_vars = kc.add_vars(n_y, Some(KN_VARTYPE_BINARY))?;
-            kc.set_var_primal_initial_values(&index_vars, &vec![0.5; index_vars.len()])?;
-
-            // maximum size
-            let index_con = kc.add_con()?;
-            let (coefs, size) = self.size_constraint();
-            kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
-            kc.set_con_upbnd(index_con, size)?;
-
-            // minimum size
-            let index_con = kc.add_con()?;
-            kc.add_con_linear_term(index_con, index_vars[0], 1.0)?;
-            kc.set_con_eqbnd(index_con, 1.0)?;
-
-            // bond constraints
-            for bond in self.bond_constraints(index_vars[0]) {
-                let index_con = kc.add_con()?;
-                kc.add_con_linear_struct_one(index_con, &bond, &[1.0, -1.0])?;
-                kc.set_con_lobnd(index_con, 0.0)?;
-            }
-
-            // symmetry constraints
-            for (index_vars, coefs) in self.symmetry_constraints(index_vars[0]) {
-                let index_con = kc.add_con()?;
-                kc.add_con_linear_struct_one(index_con, &index_vars, &coefs)?;
-                kc.set_con_lobnd(index_con, 0.0)?;
-            }
-
-            Ok(())
-        }
-    }
-
-    impl MixtureConstraints for (SuperMolecule, SuperMolecule) {
-        fn setup_knitro_mixture(&self, kc: &Knitro) -> Result<(), KnitroError> {
-            if self.0.name == self.1.name {
-                todo!()
-            }
-            Ok(())
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::MolecularRepresentation;
     use approx::assert_relative_eq;
     use itertools::Itertools;
 
@@ -597,7 +607,7 @@ mod test {
         let (size_constraint, size) = molecule.size_constraint();
         let bond_constraints = molecule.bond_constraints(0);
         let symmetry_constraints = molecule.symmetry_constraints(0);
-        for y in vec![0..=1; molecule.variables()]
+        for y in vec![0..=1; molecule.variables().len()]
             .into_iter()
             .multi_cartesian_product()
         {
@@ -679,7 +689,7 @@ mod test {
     fn test_alcohol() {
         let supermolecule = SuperMolecule::alcohol(5);
         let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.variables()]);
+            supermolecule.build(&vec![1.0; supermolecule.variables().len()]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 4.0);
         assert_eq!(segments["CH2"], 1.0);
@@ -698,7 +708,7 @@ mod test {
     fn test_ketone() {
         let supermolecule = SuperMolecule::ketone(5);
         let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.variables()]);
+            supermolecule.build(&vec![1.0; supermolecule.variables().len()]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 3.0);
         assert_eq!(segments["CH2"], 1.0);
@@ -715,7 +725,7 @@ mod test {
     fn test_alkene() {
         let supermolecule = SuperMolecule::alkene(5);
         let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.variables()]);
+            supermolecule.build(&vec![1.0; supermolecule.variables().len()]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 4.0);
         assert_eq!(segments["CH2"], 1.0);
@@ -729,5 +739,63 @@ mod test {
         assert_relative_eq!(bonds[&["CH3".to_string(), "=C<".to_string()]], 1.0);
         assert_relative_eq!(bonds[&["CH3".to_string(), "=CH".to_string()]], 1.0);
         assert_relative_eq!(bonds[&["=C<".to_string(), "=CH".to_string()]], 1.0);
+    }
+
+    fn molecule_disjunct() -> [SuperMolecule; 3] {
+        [
+            SuperMolecule::alcohol(5),
+            SuperMolecule::methylether(5),
+            SuperMolecule::ketone(5),
+        ]
+    }
+
+    #[test]
+    fn test_build_disjunct() {
+        println!("{}", molecule_disjunct().variables().len());
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule_disjunct().build(&[1.0, 0.8, 0.6, 0.1, 0.3, 0.2, 0.1, 0.5, 0.3, 0.2]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_relative_eq!(segments["CH3"], 1.464);
+        assert_relative_eq!(segments["CH2"], 1.17);
+        assert_relative_eq!(segments[">CH"], 0.218);
+        assert_relative_eq!(segments[">C<"], 0.008);
+        assert_relative_eq!(segments["OH"], 0.5);
+        assert_relative_eq!(segments["OCH3"], 0.3);
+        assert_relative_eq!(segments[">C=O"], 0.06);
+        assert_relative_eq!(segments["CH=O"], 0.14);
+    }
+
+    #[test]
+    fn test_ethanol() {
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule_disjunct().build(&[1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_eq!(segments["CH3"], 1.0);
+        assert_eq!(segments["CH2"], 1.0);
+        assert_eq!(segments["OH"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+        assert_relative_eq!(bonds[&["OH".to_string(), "CH2".to_string()]], 1.0);
+    }
+
+    #[test]
+    fn test_2_methoxybutane() {
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule_disjunct().build(&[1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_eq!(segments["CH3"], 2.0);
+        assert_eq!(segments[">CH"], 1.0);
+        assert_eq!(segments["OCH3"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 2.0);
+        assert_relative_eq!(bonds[&["OCH3".to_string(), ">CH".to_string()]], 1.0);
+    }
+
+    #[test]
+    fn test_acetone() {
+        let [SegmentAndBondCount { segments, bonds }] =
+            molecule_disjunct().build(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+        println!("{segments:?}\n{bonds:?}");
+        assert_eq!(segments["CH3"], 2.0);
+        assert_eq!(segments[">C=O"], 1.0);
+        assert_relative_eq!(bonds[&["CH3".to_string(), ">C=O".to_string()]], 2.0);
     }
 }

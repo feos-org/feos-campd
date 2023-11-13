@@ -71,7 +71,7 @@ fn test_comt_camd() -> Result<(), KnitroError> {
 #[test]
 #[cfg(feature = "knitro_rs")]
 fn test_supermolecule_disjunct() -> Result<(), KnitroError> {
-    let molecule = SuperMoleculeDisjunct::new(5);
+    let molecule = SuperMolecule::all(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
     let pcsaft =
         PcSaftPropertyModel::new("tests/sauer2014_homo.json", "tests/joback1987.json", None)

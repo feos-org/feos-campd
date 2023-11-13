@@ -87,6 +87,20 @@ impl Knitro {
         Ok(())
     }
 
+    pub fn set_var_primal_initial_value(
+        &self,
+        indexVar: i32,
+        xInitVal: f64,
+    ) -> Result<(), KnitroError> {
+        unsafe {
+            Self::handle_error(
+                "KN_set_var_primal_init_values",
+                KN_set_var_primal_init_value(self.0, indexVar, xInitVal),
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn set_var_primal_initial_values(
         &self,
         indexVars: &[i32],
