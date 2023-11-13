@@ -1,11 +1,20 @@
-use super::MolecularRepresentation;
+use super::{LinearConstraint, MolecularRepresentation, Variable};
 use feos_core::parameter::{Identifier, SegmentCount};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::HashMap};
 
+const STRUCTURES: [&str; 6] = ["alkane", "alkene", "arom", "hex", "pent", "P"];
+
 const GROUPS: [&str; 22] = [
     "CH3", "CH2", ">CH", ">C<", "=CH2", "=CH", "=C<", "C≡CH", "CH2_hex", "CH_hex", "CH2_pent",
     "CH_pent", "CH_arom", "C_arom", "CH=O", ">C=O", "OCH3", "OCH2", "HCOO", "COO", "OH", "NH2",
+];
+
+const OPEN_BONDS: [usize; 22] = [
+    1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 2, 3, 2, 3, 1, 2, 1, 2, 1, 2, 1, 1,
+];
+const NMAX: [usize; 22] = [
+    10, 10, 10, 10, 1, 2, 2, 1, 6, 6, 5, 5, 6, 6, 1, 1, 1, 1, 1, 1, 1, 1,
 ];
 
 #[derive(Clone)]
@@ -39,109 +48,76 @@ impl MolecularRepresentation<1> for CoMTCAMD {
         )]
     }
 
-    fn variables(&self) -> usize {
-        GROUPS.len() + 6
+    fn variables(&self) -> Vec<Variable> {
+        NMAX.iter()
+            .map(|&n| Variable::integer(None, 0, n))
+            .chain([Variable::binary(None); 6])
+            .collect()
+    }
+
+    fn constraints(&self, index_vars: &[i32]) -> Vec<LinearConstraint> {
+        let mut constraints = Vec::new();
+
+        let y_vars = index_vars[GROUPS.len()..].to_vec();
+        let y: HashMap<_, _> = STRUCTURES.iter().copied().zip(y_vars.clone()).collect();
+        let n: HashMap<_, _> = GROUPS.iter().copied().zip(index_vars.to_vec()).collect();
+
+        // Exactly one structure can be active
+        constraints.push(LinearConstraint::new(y_vars, vec![1.0; y.len()]).eqbnd(1.0));
+
+        // Connect molecular structures and segments
+        // Alkenes
+        let vars = vec![n["=CH2"], n["=CH"], n["=C<"], y["alkene"]];
+        constraints.push(LinearConstraint::new(vars, vec![1.0, 1.0, 1.0, -2.0]).eqbnd(0.0));
+
+        // Aromatics
+        let vars = vec![n["CH_arom"], n["C_arom"], y["arom"]];
+        constraints.push(LinearConstraint::new(vars, vec![1.0, 1.0, -6.0]).eqbnd(0.0));
+
+        // Cyclohexanes
+        let vars = vec![n["CH2_hex"], n["CH_hex"], y["hex"]];
+        constraints.push(LinearConstraint::new(vars, vec![1.0, 1.0, -6.0]).eqbnd(0.0));
+
+        // Cyclopentanes
+        let vars = vec![n["CH2_pent"], n["CH_pent"], y["pent"]];
+        constraints.push(LinearConstraint::new(vars, vec![1.0, 1.0, -5.0]).eqbnd(0.0));
+
+        // Polar groups
+        let vars = [
+            "C≡CH", "CH=O", ">C=O", "OCH3", "OCH2", "HCOO", "COO", "OH", "NH2",
+        ];
+        let vars: Vec<_> = vars
+            .into_iter()
+            .map(|g| n[g])
+            .chain(std::iter::once(y["P"]))
+            .collect();
+        let coefs = vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0];
+        constraints.push(LinearConstraint::new(vars, coefs).eqbnd(0.0));
+
+        // octett rule
+        let (vars, coefs): (Vec<_>, Vec<_>) = GROUPS
+            .iter()
+            .zip(OPEN_BONDS)
+            .map(|(&g, o)| (n[g], 2.0 - o as f64))
+            .chain([y["alkane"], y["alkene"], y["P"]].map(|i| (i, -2.0)))
+            .unzip();
+        constraints.push(LinearConstraint::new(vars, coefs).eqbnd(0.0));
+
+        // single molecule
+        for g in GROUPS {
+            let (vars, coefs): (Vec<_>, Vec<_>) = GROUPS
+                .iter()
+                .zip(OPEN_BONDS)
+                .map(|(&j, o)| (n[j], if j == g { 2.0 - o as f64 } else { 1.0 }))
+                .chain([y["alkane"], y["alkene"], y["P"]].map(|i| (i, -2.0)))
+                .unzip();
+            constraints.push(LinearConstraint::new(vars, coefs).lobnd(0.0));
+        }
+
+        constraints
     }
 
     fn smiles(&self, _: &[usize]) -> [String; 1] {
         [String::new()]
-    }
-}
-
-#[cfg(feature = "knitro_rs")]
-mod knitro {
-    use super::*;
-    use crate::knitro::MolecularRepresentationKnitro;
-    use knitro_rs::{Knitro, KnitroError, KN_VARTYPE_BINARY, KN_VARTYPE_INTEGER};
-
-    const STRUCTURES: [&str; 6] = ["alkane", "alkene", "arom", "hex", "pent", "P"];
-    const OPEN_BONDS: [usize; 22] = [
-        1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 2, 3, 2, 3, 1, 2, 1, 2, 1, 2, 1, 1,
-    ];
-    const NMAX: [usize; 22] = [
-        10, 10, 10, 10, 1, 2, 2, 1, 6, 6, 5, 5, 6, 6, 1, 1, 1, 1, 1, 1, 1, 1,
-    ];
-
-    impl MolecularRepresentationKnitro<1> for CoMTCAMD {
-        fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
-            // group counts
-            let n = kc.add_vars(GROUPS.len(), Some(KN_VARTYPE_INTEGER))?;
-            for (&i, &nmax) in n.iter().zip(NMAX.iter()) {
-                kc.set_var_lobnd(i, 0.0)?;
-                kc.set_var_upbnd(i, nmax as f64)?;
-            }
-            let n: HashMap<_, _> = GROUPS.iter().copied().zip(n).collect();
-
-            // structure variables
-            let y = kc.add_vars(STRUCTURES.len(), Some(KN_VARTYPE_BINARY))?;
-
-            // Exactly one structure can be active
-            add_eq_constraint(kc, &y, &vec![1.0; y.len()], 1.0)?;
-            let y: HashMap<_, _> = STRUCTURES.iter().copied().zip(y).collect();
-
-            // Connect molecular structures and segments
-            // Alkenes
-            let vars = [n["=CH2"], n["=CH"], n["=C<"], y["alkene"]];
-            add_eq_constraint(kc, &vars, &[1.0, 1.0, 1.0, -2.0], 0.0)?;
-
-            // Aromatics
-            let vars = [n["CH_arom"], n["C_arom"], y["arom"]];
-            add_eq_constraint(kc, &vars, &[1.0, 1.0, -6.0], 0.0)?;
-
-            // Cyclohexanes
-            let vars = [n["CH2_hex"], n["CH_hex"], y["hex"]];
-            add_eq_constraint(kc, &vars, &[1.0, 1.0, -6.0], 0.0)?;
-
-            // Cyclopentanes
-            let vars = [n["CH2_pent"], n["CH_pent"], y["pent"]];
-            add_eq_constraint(kc, &vars, &[1.0, 1.0, -5.0], 0.0)?;
-
-            // Polar groups
-            let vars = [
-                "C≡CH", "CH=O", ">C=O", "OCH3", "OCH2", "HCOO", "COO", "OH", "NH2",
-            ];
-            let vars: Vec<_> = vars
-                .into_iter()
-                .map(|g| n[g])
-                .chain(std::iter::once(y["P"]))
-                .collect();
-            let coefs = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0];
-            add_eq_constraint(kc, &vars, &coefs, 0.0)?;
-
-            // octett rule
-            let (vars, coefs): (Vec<_>, Vec<_>) = GROUPS
-                .iter()
-                .zip(OPEN_BONDS)
-                .map(|(&g, o)| (n[g], 2.0 - o as f64))
-                .chain([y["alkane"], y["alkene"], y["P"]].map(|i| (i, -2.0)))
-                .unzip();
-            add_eq_constraint(kc, &vars, &coefs, 0.0)?;
-
-            // single molecule
-            for g in GROUPS {
-                let c = kc.add_con()?;
-                let (vars, coefs): (Vec<_>, Vec<_>) = GROUPS
-                    .iter()
-                    .zip(OPEN_BONDS)
-                    .map(|(&j, o)| (n[j], if j == g { 2.0 - o as f64 } else { 1.0 }))
-                    .chain([y["alkane"], y["alkene"], y["P"]].map(|i| (i, -2.0)))
-                    .unzip();
-                kc.add_con_linear_struct_one(c, &vars, &coefs)?;
-                kc.set_con_lobnd(c, 0.0)?;
-            }
-
-            Ok(())
-        }
-    }
-    fn add_eq_constraint(
-        kc: &Knitro,
-        vars: &[i32],
-        coefs: &[f64],
-        eq: f64,
-    ) -> Result<(), KnitroError> {
-        let c = kc.add_con()?;
-        kc.add_con_linear_struct_one(c, vars, coefs)?;
-        kc.set_con_eqbnd(c, eq)?;
-        Ok(())
     }
 }

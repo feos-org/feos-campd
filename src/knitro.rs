@@ -3,41 +3,6 @@ use crate::*;
 use feos_core::EosResult;
 use knitro_rs::*;
 
-pub trait MolecularRepresentationKnitro<const N: usize>: MolecularRepresentation<N> {
-    fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError>;
-}
-
-impl<C: Clone> MolecularRepresentationKnitro<1> for FixedMolecule<C> {
-    fn setup_knitro(&self, _: &Knitro) -> Result<(), KnitroError> {
-        Ok(())
-    }
-}
-
-pub trait MixtureConstraints {
-    fn setup_knitro_mixture(&self, kc: &Knitro) -> Result<(), KnitroError>;
-}
-
-impl<C, M> MixtureConstraints for (FixedMolecule<C>, M) {
-    fn setup_knitro_mixture(&self, _: &Knitro) -> Result<(), KnitroError> {
-        Ok(())
-    }
-}
-
-impl<
-        C,
-        M1: MolecularRepresentationKnitro<1, ChemicalRecord = C>,
-        M2: MolecularRepresentationKnitro<1, ChemicalRecord = C>,
-    > MolecularRepresentationKnitro<2> for (M1, M2)
-where
-    (M1, M2): MixtureConstraints,
-{
-    fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
-        self.0.setup_knitro(kc)?;
-        self.1.setup_knitro(kc)?;
-        self.setup_knitro_mixture(kc)
-    }
-}
-
 pub trait ProcessModelKnitro: ProcessModel {
     fn setup_knitro(&self, kc: &Knitro, x0: &[f64]) -> Result<Vec<i32>, KnitroError> {
         // declare continuous variables
@@ -80,7 +45,7 @@ pub trait ProcessModelKnitro: ProcessModel {
 impl<T: ProcessModel> ProcessModelKnitro for T {}
 
 impl<
-        M: MolecularRepresentationKnitro<N>,
+        M: MolecularRepresentation<N>,
         R: PropertyModel<M::ChemicalRecord>,
         P: ProcessModel,
         const N: usize,
@@ -102,14 +67,14 @@ impl<
 }
 
 impl<
-        M: MolecularRepresentationKnitro<N>,
+        M: MolecularRepresentation<N>,
         R: PropertyModel<M::ChemicalRecord>,
         P: ProcessModel,
         const N: usize,
     > OptimizationProblem<M, R, P, N>
 {
     fn evaluate(&self, x: &[f64]) -> EosResult<(f64, Vec<f64>)> {
-        let n_y = self.molecules.variables();
+        let n_y = self.molecules.variables().len();
         let (y, x) = x.split_at(n_y);
         let cr = self.molecules.build(y);
         let eos = self.property_model.build_eos(cr.into())?;
@@ -122,15 +87,35 @@ impl<
         x0: &[f64],
         options: Option<&str>,
     ) -> Result<OptimizationResult, KnitroError> {
-        let n_y = self.molecules.variables();
-
         let kc = Knitro::new()?;
-        self.molecules.setup_knitro(&kc)?;
+
+        // define variables
+        let variables = self.molecules.variables();
+        let n_y = variables.len();
+        let index_vars = kc.add_vars(variables.len(), Some(KN_VARTYPE_INTEGER))?;
+        for (&i, variable) in index_vars.iter().zip(variables) {
+            kc.set_var_primal_initial_value(i, variable.init)?;
+            kc.set_var_lobnd(i, variable.lobnd)?;
+            kc.set_var_upbnd(i, variable.upbnd)?;
+        }
+
+        // define constraints
+        let constraints = self.molecules.constraints(&index_vars);
+        for constraint in constraints {
+            let c = kc.add_con()?;
+            kc.add_con_linear_struct_one(c, &constraint.vars, &constraint.coefs)?;
+            if let Some(lobnd) = constraint.lobnd {
+                kc.set_con_lobnd(c, lobnd)?;
+            }
+            if let Some(upbnd) = constraint.upbnd {
+                kc.set_con_upbnd(c, upbnd)?;
+            }
+        }
 
         // integer cuts
         for solution in self.solutions.iter() {
-            let y0 = &solution.y[..n_y];
-            let vars = Vec::from_iter(0..n_y as i32);
+            let y0 = &solution.y;
+            let vars = Vec::from_iter(0..y0.len() as i32);
             let c = kc.add_con()?;
             let qcoefs: Vec<_> = y0.iter().map(|_| 1.0).collect();
             let lcoefs: Vec<_> = y0.iter().map(|&n0| -2.0 * n0 as f64).collect();
