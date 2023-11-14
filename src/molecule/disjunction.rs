@@ -29,11 +29,11 @@ impl<
         constraints.push(LinearConstraint::new(c.to_vec(), coefs).eqbnd(1.0));
 
         for (i, m) in self.iter().enumerate() {
-            let mut constr = m.constraints(y);
-
-            // unused variables
             let n_y = m.variables().len();
-            let (_, unused_vars) = y.split_at(n_y);
+            let (used_vars, unused_vars) = y.split_at(n_y);
+            let mut constr = m.constraints(used_vars);
+
+            // unused variable constraint
             if !unused_vars.is_empty() {
                 let coefs = vec![1.0; unused_vars.len()];
                 constr.push(LinearConstraint::new(unused_vars.to_vec(), coefs).upbnd(0.0));

@@ -600,75 +600,45 @@ mod test {
     use super::*;
     use crate::MolecularRepresentation;
     use approx::assert_relative_eq;
-    use itertools::Itertools;
-
-    fn isomers(molecule: SuperMolecule) -> usize {
-        let mut res = 0;
-        let (size_constraint, size) = molecule.size_constraint();
-        let bond_constraints = molecule.bond_constraints(0);
-        let symmetry_constraints = molecule.symmetry_constraints(0);
-        for y in vec![0..=1; molecule.variables().len()]
-            .into_iter()
-            .multi_cartesian_product()
-        {
-            if y[0] == 0 {
-                continue;
-            }
-            if y.iter()
-                .zip(size_constraint.iter())
-                .map(|(y, &s)| y * s as usize)
-                .sum::<usize>()
-                > size as usize
-            {
-                continue;
-            }
-            if bond_constraints
-                .iter()
-                .any(|&[a, b]| y[a as usize] < y[b as usize])
-            {
-                continue;
-            }
-            if symmetry_constraints.iter().any(|(i, l)| {
-                let x = i
-                    .iter()
-                    .zip(l.iter())
-                    .map(|(&i, &l)| y[i as usize] as isize * l as isize)
-                    .sum::<isize>();
-                x < 0
-            }) {
-                continue;
-            }
-            println!("{:?}", y);
-            res += 1;
-        }
-        res
-    }
 
     // https://pubs.acs.org/doi/pdf/10.1021/ja01359a027
     #[test]
     fn test_isomers_alcohols() {
-        assert_eq!(isomers(SuperMolecule::alcohol(4)), 4);
-        assert_eq!(isomers(SuperMolecule::alcohol(5)), 8);
-        assert_eq!(isomers(SuperMolecule::alcohol(6)), 16);
-        assert_eq!(isomers(SuperMolecule::alcohol(7)), 33);
-        assert_eq!(isomers(SuperMolecule::alcohol(8)), 72);
-        // assert_eq!(isomers(SuperMolecule::alcohol(9)), 161);
+        assert_eq!(SuperMolecule::alcohol(4).generate_solutions().len(), 4);
+        assert_eq!(SuperMolecule::alcohol(5).generate_solutions().len(), 8);
+        assert_eq!(SuperMolecule::alcohol(6).generate_solutions().len(), 16);
+        assert_eq!(SuperMolecule::alcohol(7).generate_solutions().len(), 33);
+        assert_eq!(SuperMolecule::alcohol(8).generate_solutions().len(), 72);
+        // assert_eq!(SuperMolecule::alcohol(9).generate_solutions().len(), 161);
     }
 
     #[test]
     fn test_isomers_alkenes() {
-        assert_eq!(isomers(SuperMolecule::alkene(3)), 1);
-        assert_eq!(isomers(SuperMolecule::alkene(4)), 4);
-        assert_eq!(isomers(SuperMolecule::alkene(5)), 9);
-        assert_eq!(isomers(SuperMolecule::alkene(6)), 23);
+        assert_eq!(SuperMolecule::alkene(3).generate_solutions().len(), 1);
+        assert_eq!(SuperMolecule::alkene(4).generate_solutions().len(), 4);
+        assert_eq!(SuperMolecule::alkene(5).generate_solutions().len(), 9);
+        assert_eq!(SuperMolecule::alkene(6).generate_solutions().len(), 23);
     }
 
     #[test]
     fn test_isomers_ketones() {
-        assert_eq!(isomers(SuperMolecule::ketone(3)), 1);
-        assert_eq!(isomers(SuperMolecule::ketone(4)), 3);
-        assert_eq!(isomers(SuperMolecule::ketone(5)), 6);
-        assert_eq!(isomers(SuperMolecule::ketone(6)), 13);
+        assert_eq!(SuperMolecule::ketone(3).generate_solutions().len(), 1);
+        assert_eq!(SuperMolecule::ketone(4).generate_solutions().len(), 3);
+        assert_eq!(SuperMolecule::ketone(5).generate_solutions().len(), 6);
+        assert_eq!(SuperMolecule::ketone(6).generate_solutions().len(), 13);
+    }
+
+    #[test]
+    fn test_isomers_disjunction() {
+        let molecules = SuperMolecule::all(5);
+        let total_disjunct = molecules.generate_solutions().len();
+        let mut total = 0;
+        for molecule in molecules {
+            let solutions = molecule.generate_solutions().len();
+            println!("{} {}", molecule.name, solutions);
+            total += solutions;
+        }
+        assert_eq!(total_disjunct, total);
     }
 
     #[test]
