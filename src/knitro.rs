@@ -3,47 +3,6 @@ use crate::*;
 use feos_core::EosResult;
 use knitro_rs::*;
 
-pub trait ProcessModelKnitro: ProcessModel {
-    fn setup_knitro(&self, kc: &Knitro, x0: &[f64]) -> Result<Vec<i32>, KnitroError> {
-        // declare continuous variables
-        let variables = self.variables();
-        let index_vars = kc.add_vars(variables.len(), None)?;
-        for (&i, [l, u]) in index_vars.iter().zip(variables.into_iter()) {
-            if let Some(l) = l {
-                kc.set_var_lobnd(i, l)?;
-            }
-            if let Some(u) = u {
-                kc.set_var_upbnd(i, u)?;
-            }
-        }
-        kc.set_var_primal_initial_values(&index_vars, x0)?;
-
-        // declare binary variables
-        if self.binary_variables() > 0 {
-            kc.add_vars(self.binary_variables(), Some(KN_VARTYPE_BINARY))?;
-        }
-
-        // add constraints
-        let constraints = self.constraints();
-        let index_cons = kc.add_cons(constraints.len())?;
-        for (&i, [l, u, e]) in index_cons.iter().zip(constraints.into_iter()) {
-            if let Some(l) = l {
-                kc.set_con_lobnd(i, l)?;
-            }
-            if let Some(u) = u {
-                kc.set_con_upbnd(i, u)?;
-            }
-            if let Some(e) = e {
-                kc.set_con_eqbnd(i, e)?;
-            }
-        }
-
-        Ok(index_cons)
-    }
-}
-
-impl<T: ProcessModel> ProcessModelKnitro for T {}
-
 impl<
         M: MolecularRepresentation<N>,
         R: PropertyModel<M::ChemicalRecord>,
@@ -82,21 +41,23 @@ impl<
         Ok((target, constraints))
     }
 
-    pub fn solve_knitro_once(
-        &mut self,
-        x0: &[f64],
-        options: Option<&str>,
-    ) -> Result<OptimizationResult, KnitroError> {
-        let kc = Knitro::new()?;
-
+    fn setup_knitro_molecule(
+        &self,
+        kc: &Knitro,
+        y0: Option<&[f64]>,
+        vartype: u32,
+    ) -> Result<usize, KnitroError> {
         // define variables
         let variables = self.molecules.variables();
         let n_y = variables.len();
-        let index_vars = kc.add_vars(variables.len(), Some(KN_VARTYPE_INTEGER))?;
+        let index_vars = kc.add_vars(variables.len(), Some(vartype))?;
         for (&i, variable) in index_vars.iter().zip(variables) {
             kc.set_var_primal_initial_value(i, variable.init)?;
             kc.set_var_lobnd(i, variable.lobnd)?;
             kc.set_var_upbnd(i, variable.upbnd)?;
+        }
+        if let Some(y0) = y0 {
+            kc.set_var_primal_initial_values(&index_vars, y0)?;
         }
 
         // define constraints
@@ -124,13 +85,102 @@ impl<
             kc.add_con_linear_struct_one(c, &vars, &lcoefs)?;
             kc.set_con_lobnd(c, lbond)?;
         }
+        Ok(n_y)
+    }
 
-        let index_cons = self.process.setup_knitro(&kc, x0)?;
+    fn setup_knitro_process(
+        &self,
+        kc: &Knitro,
+        x0: &[f64],
+        vartype: u32,
+    ) -> Result<Vec<i32>, KnitroError> {
+        // declare continuous variables
+        let variables = self.process.variables();
+        let index_vars = kc.add_vars(variables.len(), None)?;
+        for (&i, [l, u]) in index_vars.iter().zip(variables.into_iter()) {
+            if let Some(l) = l {
+                kc.set_var_lobnd(i, l)?;
+            }
+            if let Some(u) = u {
+                kc.set_var_upbnd(i, u)?;
+            }
+        }
+        kc.set_var_primal_initial_values(&index_vars, x0)?;
+
+        // declare binary variables
+        if self.process.binary_variables() > 0 {
+            kc.add_vars(self.process.binary_variables(), Some(vartype))?;
+        }
+
+        // add constraints
+        let constraints = self.process.constraints();
+        let index_cons = kc.add_cons(constraints.len())?;
+        for (&i, [l, u, e]) in index_cons.iter().zip(constraints.into_iter()) {
+            if let Some(l) = l {
+                kc.set_con_lobnd(i, l)?;
+            }
+            if let Some(u) = u {
+                kc.set_con_upbnd(i, u)?;
+            }
+            if let Some(e) = e {
+                kc.set_con_eqbnd(i, e)?;
+            }
+        }
+
+        Ok(index_cons)
+    }
+
+    pub fn solve_target(
+        &mut self,
+        x0: &[f64],
+        options: Option<&str>,
+    ) -> Result<(f64, Vec<f64>, Vec<f64>), KnitroError> {
+        let kc = Knitro::new()?;
+
+        // Set up CAMD formulation
+        let n_y = self.setup_knitro_molecule(&kc, None, KN_VARTYPE_CONTINUOUS)?;
+
+        // Set up process variables and constraints
+        let index_cons = self.setup_knitro_process(&kc, x0, KN_VARTYPE_CONTINUOUS)?;
+
+        // Set up function callback
         let cb = kc.add_eval_callback(true, &index_cons, self)?;
         if let Some(options) = options {
             kc.load_param_file(options)?;
         }
         kc.set_cb_user_params(cb, self)?;
+
+        // Solve MINLP
+        kc.solve()?;
+        let t = kc.get_obj_value()?;
+        let x = kc.get_var_primal_values_all()?;
+        let (y, x) = x.split_at(n_y);
+
+        Ok((t, x.to_vec(), y.to_vec()))
+    }
+
+    pub fn solve_knitro_once(
+        &mut self,
+        x0: &[f64],
+        y0: Option<&[f64]>,
+        options: Option<&str>,
+    ) -> Result<OptimizationResult, KnitroError> {
+        let kc = Knitro::new()?;
+
+        // Set up CAMD formulation
+        let n_y = self.setup_knitro_molecule(&kc, y0, KN_VARTYPE_BINARY)?;
+
+        // Set up process variables and constraints
+        let index_cons = self.setup_knitro_process(&kc, x0, KN_VARTYPE_BINARY)?;
+
+        // Set up function callback
+        let cb = kc.add_eval_callback(true, &index_cons, self)?;
+        if let Some(options) = options {
+            kc.load_param_file(options)?;
+        }
+        kc.set_cb_user_params(cb, self)?;
+
+        // Solve MINLP
         kc.solve()?;
         let t = kc.get_obj_value()?;
         let x = kc.get_var_primal_values_all()?;
@@ -141,9 +191,15 @@ impl<
         Ok(OptimizationResult::new(t, smiles.into(), y, x.to_vec()))
     }
 
-    pub fn solve_knitro(&mut self, x0: &[f64], n_solutions: usize, options: Option<&str>) {
+    pub fn solve_knitro(
+        &mut self,
+        x0: &[f64],
+        y0: Option<&[f64]>,
+        n_solutions: usize,
+        options: Option<&str>,
+    ) {
         for k in 0..n_solutions {
-            if let Ok(result) = self.solve_knitro_once(x0, options) {
+            if let Ok(result) = self.solve_knitro_once(x0, y0, options) {
                 self.solutions.insert(result.clone());
                 let mut solutions: Vec<_> = self.solutions.iter().collect();
                 solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));

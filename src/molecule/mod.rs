@@ -1,3 +1,5 @@
+use itertools::Itertools;
+use ndarray::{Array, Array1};
 use serde::{Deserialize, Serialize};
 
 mod comt_camd;
@@ -76,6 +78,46 @@ pub trait MolecularRepresentation<const N: usize> {
     fn constraints(&self, index_vars: &[i32]) -> Vec<LinearConstraint>;
 
     fn smiles(&self, y: &[usize]) -> [String; N];
+
+    fn generate_solutions(&self) -> Vec<Array1<i32>> {
+        let mut res = Vec::new();
+        let n_y = self.variables().len();
+        let index_vars: Vec<_> = (0..n_y as i32).collect();
+        let constraints = self.constraints(&index_vars);
+        let constraints: Vec<_> = constraints
+            .into_iter()
+            .flat_map(|constraint| {
+                let mut con = vec![];
+                if let Some(upbnd) = constraint.upbnd {
+                    con.push((constraint.vars.clone(), constraint.coefs.clone(), upbnd));
+                }
+                if let Some(lobnd) = constraint.lobnd {
+                    let coefs = constraint.coefs.iter().map(|c| -c).collect();
+                    con.push((constraint.vars, coefs, -lobnd));
+                }
+                con
+            })
+            .collect();
+        let mut a = Array::zeros((constraints.len(), n_y));
+        let mut b = Array::zeros(constraints.len());
+        for (i, (vars, coefs, upbnd)) in constraints.into_iter().enumerate() {
+            for (j, c) in vars.into_iter().zip(coefs) {
+                a[[i, j as usize]] = c as i32;
+            }
+            b[i] = upbnd as i32;
+        }
+
+        for y in vec![0..=1; self.variables().len()]
+            .into_iter()
+            .multi_cartesian_product()
+        {
+            let y = Array::from_vec(y);
+            if b.iter().zip(a.dot(&y)).all(|(&b, x)| x <= b) {
+                res.push(y)
+            }
+        }
+        res
+    }
 }
 
 /// Molecular representation for a fixed molecule.
