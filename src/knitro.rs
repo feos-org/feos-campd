@@ -199,26 +199,29 @@ impl<
         options: Option<&str>,
     ) {
         for k in 0..n_solutions {
-            if let Ok(result) = self.solve_knitro_once(x0, y0, options) {
-                self.solutions.insert(result.clone());
-                let mut solutions: Vec<_> = self.solutions.iter().collect();
-                solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
-                println!("\nRun {}", k + 1);
-                for (k, solution) in solutions.into_iter().enumerate() {
-                    let k = if solution == &result || solution.target < result.target {
-                        format!("{:3}", k + 1)
-                    } else {
-                        "   ".into()
-                    };
-                    let smiles = match &solution.smiles[..] {
-                        [smiles] => smiles.clone(),
-                        _ => format!("[{}]", solution.smiles.join(", ")),
-                    };
-                    println!(
-                        "{k} {:.7} {:?} {smiles} {:?}",
-                        solution.target, solution.y, solution.x
-                    );
+            match self.solve_knitro_once(x0, y0, options) {
+                Ok(result) => {
+                    self.solutions.insert(result.clone());
+                    let mut solutions: Vec<_> = self.solutions.iter().collect();
+                    solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
+                    println!("\nRun {}", k + 1);
+                    for (k, solution) in solutions.into_iter().enumerate() {
+                        let k = if solution == &result || solution.target < result.target {
+                            format!("{:3}", k + 1)
+                        } else {
+                            "   ".into()
+                        };
+                        let smiles = match &solution.smiles[..] {
+                            [smiles] => smiles.clone(),
+                            _ => format!("[{}]", solution.smiles.join(", ")),
+                        };
+                        println!(
+                            "{k} {:.7} {:?} {smiles} {:?}",
+                            solution.target, solution.y, solution.x
+                        );
+                    }
                 }
+                Err(e) => println!("\nRun {}\n{e:?}", k + 1),
             }
         }
     }
