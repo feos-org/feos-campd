@@ -1,6 +1,6 @@
 use super::molecule::SegmentAndBondCount;
 use feos::gc_pcsaft::{GcPcSaft, GcPcSaftChemicalRecord, GcPcSaftEosParameters, GcPcSaftRecord};
-use feos::pcsaft::{PcSaft, PcSaftBinaryRecord, PcSaftParameters, PcSaftRecord};
+use feos::pcsaft::{PcSaft, PcSaftParameters, PcSaftRecord};
 use feos_core::joback::{Joback, JobackParameters, JobackRecord};
 use feos_core::parameter::{
     BinaryRecord, Identifier, Parameter, ParameterError, ParameterHetero, SegmentCount,
@@ -23,13 +23,13 @@ pub trait PropertyModel<C> {
 
 /// A generic group contribution method
 #[derive(Clone, Serialize, Deserialize)]
-pub struct GcPropertyModel<I, R, B> {
+pub struct GcPropertyModel<I, R> {
     residual: Vec<SegmentRecord<R>>,
     ideal_gas: Vec<SegmentRecord<I>>,
-    binary: Option<Vec<BinaryRecord<String, B>>>,
+    binary: Option<Vec<BinaryRecord<String, f64>>>,
 }
 
-impl<I, R, B: From<f64>> GcPropertyModel<I, R, B>
+impl<I, R> GcPropertyModel<I, R>
 where
     for<'de> R: Deserialize<'de>,
     for<'de> I: Deserialize<'de>,
@@ -48,7 +48,7 @@ where
                 .map(|binary| {
                     binary
                         .into_iter()
-                        .map(|br| BinaryRecord::new(br.id1, br.id2, br.model_record.into()))
+                        .map(|br| BinaryRecord::new(br.id1, br.id2, br.model_record))
                         .collect()
                 }),
         })
@@ -56,7 +56,7 @@ where
 }
 
 /// The (homosegmented) group contribution PC-SAFT model.
-pub type PcSaftPropertyModel = GcPropertyModel<JobackRecord, PcSaftRecord, PcSaftBinaryRecord>;
+pub type PcSaftPropertyModel = GcPropertyModel<JobackRecord, PcSaftRecord>;
 
 impl<T: SegmentCount<Count = f64> + Clone> PropertyModel<T> for PcSaftPropertyModel {
     type EquationOfState = EquationOfState<Joback, PcSaft>;
@@ -103,7 +103,7 @@ impl PropertyModel<()> for PcSaftFixedPropertyModel {
 }
 
 /// The heterosegmented gc-PC-SAFT equation of state.
-pub type GcPcSaftPropertyModel = GcPropertyModel<JobackRecord, GcPcSaftRecord, f64>;
+pub type GcPcSaftPropertyModel = GcPropertyModel<JobackRecord, GcPcSaftRecord>;
 
 impl PropertyModel<SegmentAndBondCount> for GcPcSaftPropertyModel {
     type EquationOfState = EquationOfState<Joback, GcPcSaft>;
