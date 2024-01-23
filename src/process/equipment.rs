@@ -1,6 +1,6 @@
 use super::{Isobar, Process, ProcessState, ProcessStep, StatePoint};
-use feos_core::si::*;
-use feos_core::{Contributions, DensityInitialization, EosResult, IdealGas, Residual};
+use feos::core::si::*;
+use feos::core::{Contributions, DensityInitialization, EosResult, IdealGas, Residual};
 
 /// Representation of a single equipment in a [Process] graph.
 pub struct Equipment {

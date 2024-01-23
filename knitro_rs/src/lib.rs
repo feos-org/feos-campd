@@ -2,6 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use std::error::Error;
 use std::fmt;
 use std::slice;
 
@@ -19,9 +20,12 @@ impl Drop for Knitro {
 
 pub struct KnitroCallback(CB_context_ptr);
 
+#[derive(Debug)]
 pub struct KnitroError(String, i32);
 
-impl fmt::Debug for KnitroError {
+impl Error for KnitroError {}
+
+impl fmt::Display for KnitroError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Knitro function {} returned code {}.", self.0, self.1)
     }
@@ -47,7 +51,15 @@ impl Knitro {
         Ok(Self(kc))
     }
 
-    pub fn add_vars(&self, nV: usize, xType: Option<u32>) -> Result<Vec<i32>, KnitroError> {
+    pub fn add_var(&self) -> Result<i32, KnitroError> {
+        let mut indexVar = 0;
+        unsafe {
+            Self::handle_error("KN_add_var", KN_add_var(self.0, &mut indexVar))?;
+        }
+        Ok(indexVar)
+    }
+
+    pub fn add_vars(&self, nV: usize) -> Result<Vec<i32>, KnitroError> {
         let mut indexVars = vec![0; nV];
         unsafe {
             Self::handle_error(
@@ -55,16 +67,33 @@ impl Knitro {
                 KN_add_vars(self.0, nV as i32, indexVars.as_mut_ptr()),
             )?;
         }
-        if let Some(xType) = xType {
-            let xType = vec![xType as i32; nV];
-            unsafe {
-                Self::handle_error(
-                    "KN_set_var_types",
-                    KN_set_var_types(self.0, nV as i32, indexVars.as_ptr(), xType.as_ptr()),
-                )?;
-            }
-        }
         Ok(indexVars)
+    }
+
+    pub fn set_var_type(&self, indexVar: i32, xType: u32) -> Result<(), KnitroError> {
+        unsafe {
+            Self::handle_error(
+                "KN_set_var_type",
+                KN_set_var_type(self.0, indexVar, xType as i32),
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn set_var_types(&self, indexVars: &[i32], xTypes: &[u32]) -> Result<(), KnitroError> {
+        let xTypes: Vec<_> = xTypes.iter().map(|&xType| xType as i32).collect();
+        unsafe {
+            Self::handle_error(
+                "KN_set_var_types",
+                KN_set_var_types(
+                    self.0,
+                    indexVars.len() as i32,
+                    indexVars.as_ptr(),
+                    xTypes.as_ptr(),
+                ),
+            )?;
+        }
+        Ok(())
     }
 
     pub fn set_var_lobnd(&self, indexVar: i32, xLoBnd: f64) -> Result<(), KnitroError> {
@@ -82,6 +111,31 @@ impl Knitro {
             Self::handle_error(
                 "KN_set_var_upbnd",
                 KN_set_var_upbnd(self.0, indexVar, xUpBnd),
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn set_var_fxbnd(&self, indexVar: i32, xFxBnd: f64) -> Result<(), KnitroError> {
+        unsafe {
+            Self::handle_error(
+                "KN_set_var_fxbnd",
+                KN_set_var_fxbnd(self.0, indexVar, xFxBnd),
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn set_var_fxbnds(&self, indexVars: &[i32], xFxBnds: &[f64]) -> Result<(), KnitroError> {
+        unsafe {
+            Self::handle_error(
+                "KN_set_var_fxbnds",
+                KN_set_var_fxbnds(
+                    self.0,
+                    indexVars.len() as i32,
+                    indexVars.as_ptr(),
+                    xFxBnds.as_ptr(),
+                ),
             )?;
         }
         Ok(())
@@ -219,7 +273,7 @@ impl Knitro {
         let coefs = [coef];
         unsafe {
             Self::handle_error(
-                "KN_add_con_linear_term",
+                "KN_add_con_linear_struct",
                 KN_add_con_linear_struct(
                     self.0,
                     1,
@@ -270,11 +324,50 @@ impl Knitro {
         Ok(nC as usize)
     }
 
+    pub fn set_compcons(
+        &self,
+        indexComps1: &[i32],
+        indexComps2: &[i32],
+    ) -> Result<(), KnitroError> {
+        unsafe {
+            Self::handle_error(
+                "KN_set_compcons",
+                KN_set_compcons(
+                    self.0,
+                    indexComps1.len() as i32,
+                    vec![KN_CCTYPE_VARVAR as i32; indexComps1.len()].as_ptr(),
+                    indexComps1.as_ptr(),
+                    indexComps2.as_ptr(),
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn add_obj_linear_struct(
+        &self,
+        indexVars: &[i32],
+        coefs: &[f64],
+    ) -> Result<(), KnitroError> {
+        unsafe {
+            Self::handle_error(
+                "KN_add_obj_linear_struct",
+                KN_add_obj_linear_struct(
+                    self.0,
+                    indexVars.len() as i32,
+                    indexVars.as_ptr(),
+                    coefs.as_ptr(),
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn add_eval_callback<C: EvalCallback>(
         &self,
         evalObj: bool,
         indexCons: &[i32],
-        callback: &C,
+        callback: &mut C,
     ) -> Result<KnitroCallback, KnitroError> {
         let mut cb: CB_context_ptr = &mut CB_context { _unused: [0; 0] };
         unsafe {
@@ -290,19 +383,39 @@ impl Knitro {
                 ),
             )?;
         }
-        Ok(KnitroCallback(cb))
-    }
 
-    pub fn set_cb_user_params<C: EvalCallback>(
-        &self,
-        cb: KnitroCallback,
-        userParams: &mut C,
-    ) -> Result<(), KnitroError> {
-        let userParams = userParams as *mut C;
+        let callback = callback as *mut C;
         unsafe {
             Self::handle_error(
                 "KN_set_cb_user_params",
-                KN_set_cb_user_params(self.0, cb.0, userParams as *mut std::os::raw::c_void),
+                KN_set_cb_user_params(self.0, cb, callback as *mut std::os::raw::c_void),
+            )?;
+        }
+        Ok(KnitroCallback(cb))
+    }
+
+    pub fn set_cb_grad<C: EvalCallback>(
+        &self,
+        cb: &mut KnitroCallback,
+        objGradIndexVars: &[i32],
+        jacIndexCons: &[i32],
+        jacIndexVars: &[i32],
+        callback: Option<&mut C>,
+    ) -> Result<(), KnitroError> {
+        let callback = callback.map_or_else(|| None, |c| get_eval_callback(c));
+        unsafe {
+            Self::handle_error(
+                "KN_set_cb_grad",
+                KN_set_cb_grad(
+                    self.0,
+                    cb.0,
+                    objGradIndexVars.len() as i32,
+                    objGradIndexVars.as_ptr(),
+                    jacIndexCons.len() as i64,
+                    jacIndexCons.as_ptr(),
+                    jacIndexVars.as_ptr(),
+                    callback,
+                ),
             )?;
         }
         Ok(())
@@ -344,10 +457,109 @@ impl Knitro {
         }
         Ok(x)
     }
+
+    pub fn get_var_primal_values(&self, indexVars: &[i32]) -> Result<Vec<f64>, KnitroError> {
+        let mut x = vec![0.0; indexVars.len()];
+        unsafe {
+            Self::handle_error(
+                "KN_get_var_primal_values",
+                KN_get_var_primal_values(
+                    self.0,
+                    indexVars.len() as i32,
+                    indexVars.as_ptr(),
+                    x.as_mut_ptr(),
+                ),
+            )?;
+        }
+        Ok(x)
+    }
+
+    pub fn get_con_values(&self, indexCons: &[i32]) -> Result<Vec<f64>, KnitroError> {
+        let mut c = vec![0.0; indexCons.len()];
+        unsafe {
+            Self::handle_error(
+                "KN_get_con_values",
+                KN_get_con_values(
+                    self.0,
+                    indexCons.len() as i32,
+                    indexCons.as_ptr(),
+                    c.as_mut_ptr(),
+                ),
+            )?;
+        }
+        Ok(c)
+    }
+
+    pub fn get_con_dual_values(&self, indexCons: &[i32]) -> Result<Vec<f64>, KnitroError> {
+        let mut lambda = vec![0.0; indexCons.len()];
+        unsafe {
+            Self::handle_error(
+                "KN_get_con_dual_values",
+                KN_get_con_dual_values(
+                    self.0,
+                    indexCons.len() as i32,
+                    indexCons.as_ptr(),
+                    lambda.as_mut_ptr(),
+                ),
+            )?;
+        }
+        Ok(lambda)
+    }
+
+    pub fn get_objgrad_values_all(&self) -> Result<Vec<f64>, KnitroError> {
+        let mut objGrad = vec![0.0; self.get_number_vars()?];
+        unsafe {
+            Self::handle_error(
+                "KN_get_objgrad_values_all",
+                KN_get_objgrad_values_all(self.0, objGrad.as_mut_ptr()),
+            )?;
+        }
+        Ok(objGrad)
+    }
+
+    pub fn get_objgrad_values(&self) -> Result<(Vec<i32>, Vec<f64>), KnitroError> {
+        let mut nnz = 0;
+        unsafe {
+            Self::handle_error("KN_get_objgrad_nnz", KN_get_objgrad_nnz(self.0, &mut nnz))?;
+        }
+        let nnz = nnz as usize;
+        let mut indexVars = vec![0; nnz];
+        let mut objGrad = vec![0.0; nnz];
+        unsafe {
+            Self::handle_error(
+                "KN_get_objgrad_values",
+                KN_get_objgrad_values(self.0, indexVars.as_mut_ptr(), objGrad.as_mut_ptr()),
+            )?;
+        }
+        Ok((indexVars, objGrad))
+    }
+
+    pub fn get_jacobian_values(&self) -> Result<(Vec<i32>, Vec<i32>, Vec<f64>), KnitroError> {
+        let mut nnz = 0;
+        unsafe {
+            Self::handle_error("KN_get_jacobian_nnz", KN_get_jacobian_nnz(self.0, &mut nnz))?;
+        }
+        let nnz = nnz as usize;
+        let mut indexCons = vec![0; nnz];
+        let mut indexVars = vec![0; nnz];
+        let mut jac = vec![0.0; nnz];
+        unsafe {
+            Self::handle_error(
+                "KN_get_jacobian_values",
+                KN_get_jacobian_values(
+                    self.0,
+                    indexCons.as_mut_ptr(),
+                    indexVars.as_mut_ptr(),
+                    jac.as_mut_ptr(),
+                ),
+            )?;
+        }
+        Ok((indexCons, indexVars, jac))
+    }
 }
 
 pub trait EvalCallback {
-    fn callback(&self, x: &[f64], c: &mut [f64]) -> f64;
+    fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32;
 }
 
 unsafe extern "C" fn eval_callback_wrapper<C: EvalCallback>(
@@ -370,9 +582,8 @@ unsafe extern "C" fn eval_callback_wrapper<C: EvalCallback>(
     }
     let x = slice::from_raw_parts((*evalRequest).x, nV as usize);
     let c = slice::from_raw_parts_mut((*evalResult).c, nC as usize);
-    let obj = userParams.callback(x, c);
-    *(*evalResult).obj = obj;
-    0
+    let obj = &mut *(*evalResult).obj;
+    userParams.callback(x, obj, c)
 }
 
 pub fn get_eval_callback<C: EvalCallback>(_: &C) -> KN_eval_callback {

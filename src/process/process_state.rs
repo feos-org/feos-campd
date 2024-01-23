@@ -1,5 +1,5 @@
-use feos_core::{si::*, IdealGas};
-use feos_core::{
+use feos::core::{si::*, IdealGas};
+use feos::core::{
     Contributions, DensityInitialization, EosError, EosResult, PhaseEquilibrium, Residual, State,
     StateBuilder,
 };

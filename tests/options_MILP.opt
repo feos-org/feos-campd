@@ -1,0 +1,4 @@
+outmode     1                   # print to file
+outlev 6
+mip_heuristic none
+mip_knapsack 0
