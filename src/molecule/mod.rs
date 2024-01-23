@@ -1,89 +1,45 @@
+use crate::variables::{ContinuousVariables, DiscreteVariables, LinearConstraint, Variable};
+#[cfg(feature = "knitro_rs")]
+use crate::OptimizationMode;
+use crate::OptimizationResult;
 use itertools::Itertools;
+#[cfg(feature = "knitro_rs")]
+use knitro_rs::{Knitro, KnitroError};
 use ndarray::{Array, Array1};
-use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 mod comt_camd;
 mod disjunction;
+mod mixture;
 mod polynomial;
 mod supermolecule;
-pub use comt_camd::{CoMTCAMD, GroupCount};
+pub use comt_camd::{CoMTCAMD, CoMTCAMDPropertyModel};
 pub use supermolecule::{SegmentAndBondCount, SuperMolecule};
-
-#[derive(Clone, Copy)]
-pub struct Variable {
-    pub init: f64,
-    pub lobnd: f64,
-    pub upbnd: f64,
-}
-
-impl Variable {
-    pub fn binary(init: Option<f64>) -> Self {
-        Self {
-            init: init.unwrap_or(0.5),
-            lobnd: 0.0,
-            upbnd: 1.0,
-        }
-    }
-
-    pub fn integer(init: Option<f64>, lobnd: usize, upbnd: usize) -> Self {
-        let lobnd = lobnd as f64;
-        let upbnd = upbnd as f64;
-        Self {
-            init: init.unwrap_or(0.5 * (lobnd + upbnd)),
-            lobnd,
-            upbnd,
-        }
-    }
-}
-
-pub struct LinearConstraint {
-    pub vars: Vec<i32>,
-    pub coefs: Vec<f64>,
-    pub lobnd: Option<f64>,
-    pub upbnd: Option<f64>,
-}
-
-impl LinearConstraint {
-    pub fn new(vars: Vec<i32>, coefs: Vec<f64>) -> Self {
-        Self {
-            vars,
-            coefs,
-            lobnd: None,
-            upbnd: None,
-        }
-    }
-
-    pub fn lobnd(mut self, lobnd: f64) -> Self {
-        self.lobnd = Some(lobnd);
-        self
-    }
-
-    pub fn upbnd(mut self, upbnd: f64) -> Self {
-        self.upbnd = Some(upbnd);
-        self
-    }
-
-    pub fn eqbnd(self, eqbnd: f64) -> Self {
-        self.lobnd(eqbnd).upbnd(eqbnd)
-    }
-}
 
 /// A generic molecular representation to be used in an [OptimizationProblem](super::OptimizationProblem).
 pub trait MolecularRepresentation<const N: usize> {
     type ChemicalRecord;
-    fn build(&self, y: &[f64]) -> [Self::ChemicalRecord; N];
+    fn build(&self, y: &[f64], p: &[f64]) -> [Self::ChemicalRecord; N];
 
-    fn variables(&self) -> Vec<Variable>;
+    fn structure_variables(&self) -> DiscreteVariables;
 
-    fn constraints(&self, index_vars: &[i32]) -> Vec<LinearConstraint>;
+    fn parameter_variables(&self) -> ContinuousVariables;
+
+    fn determine_parameters(&self, y: &[f64]) -> Vec<f64>;
+
+    fn constraints(
+        &self,
+        index_structure_vars: &[i32],
+        index_parameter_vars: Option<&[i32]>,
+    ) -> Vec<LinearConstraint>;
 
     fn smiles(&self, y: &[usize]) -> [String; N];
 
     fn generate_solutions(&self) -> Vec<Array1<i32>> {
         let mut res = Vec::new();
-        let n_y = self.variables().len();
+        let n_y = self.structure_variables().len();
         let index_vars: Vec<_> = (0..n_y as i32).collect();
-        let constraints = self.constraints(&index_vars);
+        let constraints = self.constraints(&index_vars, None);
         let constraints: Vec<_> = constraints
             .into_iter()
             .flat_map(|constraint| {
@@ -107,7 +63,7 @@ pub trait MolecularRepresentation<const N: usize> {
             b[i] = upbnd as i32;
         }
 
-        for y in vec![0..=1; self.variables().len()]
+        for y in vec![0..=1; self.structure_variables().len()]
             .into_iter()
             .multi_cartesian_product()
         {
@@ -118,76 +74,56 @@ pub trait MolecularRepresentation<const N: usize> {
         }
         res
     }
-}
 
-/// Molecular representation for a fixed molecule.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct FixedMolecule<C> {
-    smiles: String,
-    chemical_record: C,
-}
+    #[cfg(feature = "knitro_rs")]
+    fn setup_knitro(
+        &self,
+        kc: &Knitro,
+        y0: Option<&[f64]>,
+        p0: Option<&[f64]>,
+        solutions: &HashSet<OptimizationResult>,
+        mode: OptimizationMode,
+    ) -> Result<[Vec<i32>; 2], KnitroError> {
+        // define parameter variables
+        let index_parameter_vars = if let OptimizationMode::FixedMolecule = mode {
+            let p0 = self.determine_parameters(y0.unwrap());
+            self.parameter_variables().setup_knitro(kc, Some(&p0), mode)
+        } else {
+            self.parameter_variables().setup_knitro(kc, p0, mode)
+        }?;
 
-impl<C> FixedMolecule<C> {
-    pub fn new(smiles: String, chemical_record: C) -> Self {
-        Self {
-            smiles,
-            chemical_record,
+        // define structure variables
+        let index_structure_vars = self.structure_variables().setup_knitro(kc, y0, mode)?;
+
+        // define constraints
+        let constraints = self.constraints(&index_structure_vars, Some(&index_parameter_vars));
+        for constraint in constraints {
+            let c = kc.add_con()?;
+            kc.add_con_linear_struct_one(c, &constraint.vars, &constraint.coefs)?;
+            if let Some(lobnd) = constraint.lobnd {
+                kc.set_con_lobnd(c, lobnd)?;
+            }
+            if let Some(upbnd) = constraint.upbnd {
+                kc.set_con_upbnd(c, upbnd)?;
+            }
         }
-    }
-}
 
-impl<C: Clone> MolecularRepresentation<1> for FixedMolecule<C> {
-    type ChemicalRecord = C;
-
-    fn variables(&self) -> Vec<Variable> {
-        vec![]
-    }
-
-    fn constraints(&self, _: &[i32]) -> Vec<LinearConstraint> {
-        vec![]
-    }
-
-    fn build(&self, _: &[f64]) -> [C; 1] {
-        [self.chemical_record.clone()]
-    }
-
-    fn smiles(&self, _: &[usize]) -> [String; 1] {
-        [self.smiles.clone()]
-    }
-}
-
-impl<
-        C,
-        M1: MolecularRepresentation<1, ChemicalRecord = C>,
-        M2: MolecularRepresentation<1, ChemicalRecord = C>,
-    > MolecularRepresentation<2> for (M1, M2)
-{
-    type ChemicalRecord = C;
-
-    fn build(&self, y: &[f64]) -> [Self::ChemicalRecord; 2] {
-        let (y1, y2) = y.split_at(self.0.variables().len());
-        let [cr1] = self.0.build(y1);
-        let [cr2] = self.1.build(y2);
-        [cr1, cr2]
-    }
-
-    fn variables(&self) -> Vec<Variable> {
-        let mut variables = self.0.variables();
-        variables.append(&mut self.1.variables());
-        variables
-    }
-
-    fn constraints(&self, index_vars: &[i32]) -> Vec<LinearConstraint> {
-        let (index_vars1, index_vars2) = index_vars.split_at(self.0.variables().len());
-        let mut constraints = self.0.constraints(index_vars1);
-        constraints.append(&mut self.1.constraints(index_vars2));
-        constraints
-    }
-
-    fn smiles(&self, y: &[usize]) -> [String; 2] {
-        let (y1, y2) = y.split_at(self.0.variables().len());
-        let [smiles1] = self.0.smiles(y1);
-        let [smiles2] = self.1.smiles(y2);
-        [smiles1, smiles2]
+        // integer cuts
+        for solution in solutions.iter() {
+            let y0 = &solution.y;
+            let c = kc.add_con()?;
+            let qcoefs: Vec<_> = y0.iter().map(|_| 1.0).collect();
+            let lcoefs: Vec<_> = y0.iter().map(|&n0| -2.0 * n0 as f64).collect();
+            let lbond = 1.0 - y0.iter().map(|n0| n0.pow(2) as f64).sum::<f64>();
+            kc.add_con_quadratic_struct_one(
+                c,
+                &index_structure_vars,
+                &index_structure_vars,
+                &qcoefs,
+            )?;
+            kc.add_con_linear_struct_one(c, &index_structure_vars, &lcoefs)?;
+            kc.set_con_lobnd(c, lbond)?;
+        }
+        Ok([index_structure_vars, index_parameter_vars])
     }
 }

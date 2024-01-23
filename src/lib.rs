@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 #![allow(clippy::too_many_arguments)]
-use feos_core::parameter::ParameterError;
+use feos::core::parameter::ParameterError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
@@ -12,16 +12,25 @@ use std::path::Path;
 mod molecule;
 pub mod process;
 mod property;
+mod variables;
 pub use molecule::{
-    CoMTCAMD, FixedMolecule, GroupCount, MolecularRepresentation, SegmentAndBondCount,
-    SuperMolecule,
+    CoMTCAMD, CoMTCAMDPropertyModel, MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
 };
-pub use property::{
-    GcPcSaftPropertyModel, PcSaftFixedPropertyModel, PcSaftPropertyModel, PropertyModel,
+pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
+pub use variables::{
+    ContinuousVariables, DiscreteVariables, LinearConstraint, Variable, Variables,
 };
 
 #[cfg(feature = "knitro_rs")]
-pub mod knitro;
+mod solver;
+
+#[derive(Clone, Copy)]
+pub enum OptimizationMode {
+    FixedMolecule,
+    Gradients,
+    Target,
+    MolecularDesign,
+}
 
 /// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel](process::ProcessModel).
 #[derive(Serialize, Deserialize)]
@@ -71,17 +80,19 @@ impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
 pub struct OptimizationResult {
     pub target: f64,
     pub smiles: Vec<String>,
-    pub y: Vec<usize>,
     pub x: Vec<f64>,
+    pub y: Vec<usize>,
+    pub p: Vec<f64>,
 }
 
 impl OptimizationResult {
-    pub fn new(target: f64, smiles: Vec<String>, y: Vec<usize>, x: Vec<f64>) -> Self {
+    pub fn new(target: f64, smiles: Vec<String>, x: Vec<f64>, y: Vec<usize>, p: Vec<f64>) -> Self {
         Self {
             target,
             smiles,
-            y,
             x,
+            y,
+            p,
         }
     }
 }

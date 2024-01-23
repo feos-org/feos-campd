@@ -1,4 +1,6 @@
-use super::{LinearConstraint, MolecularRepresentation, Variable};
+use super::{
+    ContinuousVariables, DiscreteVariables, LinearConstraint, MolecularRepresentation, Variable,
+};
 use std::ops::{Add, Mul};
 
 impl<
@@ -9,19 +11,40 @@ impl<
 {
     type ChemicalRecord = C;
 
-    fn variables(&self) -> Vec<Variable> {
+    fn structure_variables(&self) -> DiscreteVariables {
         let mut variables = self
             .iter()
-            .map(|s| s.variables())
+            .map(|s| s.structure_variables())
             .max_by_key(|v| v.len())
             .unwrap();
-        variables.extend([Variable::binary(Some(1.0 / N as f64)); N]);
+        variables.extend([Variable::binary(); N]);
         variables
     }
 
-    fn constraints(&self, index_vars: &[i32]) -> Vec<LinearConstraint> {
+    fn parameter_variables(&self) -> ContinuousVariables {
+        self.iter()
+            .map(|s| s.parameter_variables())
+            .max_by_key(|v| v.len())
+            .unwrap()
+    }
+
+    fn determine_parameters(&self, y: &[f64]) -> Vec<f64> {
+        let (y, c) = y.split_at(y.len() - N);
+        self.iter()
+            .map(|m| m.determine_parameters(y))
+            .zip(c.iter())
+            .map(|(p, &c)| p.iter().map(|p| p * c).collect::<Vec<_>>())
+            .reduce(|a, b| a.iter().zip(b).map(|(a, b)| a + b).collect())
+            .unwrap()
+    }
+
+    fn constraints(
+        &self,
+        index_structure_vars: &[i32],
+        index_parameter_vars: Option<&[i32]>,
+    ) -> Vec<LinearConstraint> {
         // structure variables
-        let (y, c) = index_vars.split_at(index_vars.len() - self.len());
+        let (y, c) = index_structure_vars.split_at(index_structure_vars.len() - self.len());
 
         // disjunction
         let mut constraints = Vec::new();
@@ -29,9 +52,9 @@ impl<
         constraints.push(LinearConstraint::new(c.to_vec(), coefs).eqbnd(1.0));
 
         for (i, m) in self.iter().enumerate() {
-            let n_y = m.variables().len();
+            let n_y = m.structure_variables().len();
             let (used_vars, unused_vars) = y.split_at(n_y);
-            let mut constr = m.constraints(used_vars);
+            let mut constr = m.constraints(used_vars, index_parameter_vars);
 
             // unused variable constraint
             if !unused_vars.is_empty() {
@@ -59,12 +82,12 @@ impl<
         constraints
     }
 
-    fn build(&self, y: &[f64]) -> [C; 1] {
+    fn build(&self, y: &[f64], p: &[f64]) -> [C; 1] {
         let (y, c) = y.split_at(y.len() - N);
         [self
             .iter()
             .map(|m| {
-                let [cr] = m.build(y);
+                let [cr] = m.build(y, p);
                 cr
             })
             .zip(c.iter())

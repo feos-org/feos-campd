@@ -1,6 +1,11 @@
 //! Simple unit operations and process models.
-use feos_core::si::*;
-use feos_core::{EosResult, IdealGas, Residual, StateBuilder};
+use crate::variables::ContinuousVariables;
+#[cfg(feature = "knitro_rs")]
+use crate::OptimizationMode;
+use feos::core::si::*;
+use feos::core::{EosResult, IdealGas, Residual, StateBuilder};
+#[cfg(feature = "knitro_rs")]
+use knitro_rs::{Knitro, KnitroError};
 use ndarray::{arr1, Array1};
 use petgraph::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -17,22 +22,64 @@ pub use process_state::{Isobar, ProcessState};
 /// Generic process model to be used in an [OptimizationProblem](super::OptimizationProblem).
 pub trait ProcessModel {
     /// For each continuous process variable return the lower and upper bounds.
-    fn variables(&self) -> Vec<[Option<f64>; 2]>;
+    fn variables(&self) -> ContinuousVariables;
 
-    /// Return the number of binary process variables.
-    fn binary_variables(&self) -> usize {
+    /// Return the number of equality constraints (h(x)=0)
+    fn equality_constraints(&self) -> usize {
         0
     }
 
-    /// For each constraint return the lower, upper and equality bound.
-    fn constraints(&self) -> Vec<[Option<f64>; 3]>;
+    /// For each inequality constraint return the lower and upper bound.
+    fn constraints(&self) -> Vec<[Option<f64>; 2]>;
 
-    /// Solve the process model and return the [Process], the target and the constraint values.
+    /// Solve the process model and return the target, and the values of equality and inequality constraints.
     fn solve<E: Residual + IdealGas>(
         &self,
         eos: &Arc<E>,
         x: &[f64],
-    ) -> EosResult<(Process<E>, f64, Vec<f64>)>;
+    ) -> EosResult<(f64, Vec<f64>, Vec<f64>)>;
+
+    #[cfg(feature = "knitro_rs")]
+    fn setup_knitro(
+        &self,
+        kc: &Knitro,
+        x0: Option<&[f64]>,
+        mode: OptimizationMode,
+    ) -> Result<[Vec<i32>; 3], KnitroError> {
+        // declare continuous variables
+        let index_vars = self.variables().setup_knitro(kc, x0, mode)?;
+        // let variables = self.variables();
+        // let index_vars = kc.add_vars(variables.len())?;
+        // for (&i, [l, u]) in index_vars.iter().zip(variables.into_iter()) {
+        //     kc.set_var_lobnd(i, l)?;
+        //     kc.set_var_upbnd(i, u)?;
+        // }
+        // if let OptimizationMode::Gradients = mode {
+        //     kc.set_var_fxbnds(&index_vars, x0.unwrap())?;
+        // } else if let Some(x0) = x0 {
+        //     kc.set_var_primal_initial_values(&index_vars, x0)?;
+        // }
+
+        // add equality constraints
+        let index_eq_cons = kc.add_cons(self.equality_constraints())?;
+        for &i in &index_eq_cons {
+            kc.set_con_eqbnd(i, 0.0)?;
+        }
+
+        // add inequality constraints
+        let constraints = self.constraints();
+        let index_ineq_cons = kc.add_cons(constraints.len())?;
+        for (&i, [l, u]) in index_ineq_cons.iter().zip(constraints.into_iter()) {
+            if let Some(l) = l {
+                kc.set_con_lobnd(i, l)?;
+            }
+            if let Some(u) = u {
+                kc.set_con_upbnd(i, u)?;
+            }
+        }
+
+        Ok([index_vars, index_eq_cons, index_ineq_cons])
+    }
 }
 
 /// The type used to index a [Process].

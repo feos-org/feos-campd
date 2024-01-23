@@ -1,12 +1,12 @@
 use super::molecule::SegmentAndBondCount;
-use feos::gc_pcsaft::{GcPcSaft, GcPcSaftChemicalRecord, GcPcSaftEosParameters, GcPcSaftRecord};
-use feos::pcsaft::{PcSaft, PcSaftParameters, PcSaftRecord};
-use feos_core::joback::{Joback, JobackParameters, JobackRecord};
-use feos_core::parameter::{
+use feos::core::parameter::{
     BinaryRecord, Identifier, Parameter, ParameterError, ParameterHetero, SegmentCount,
     SegmentRecord,
 };
-use feos_core::{EquationOfState, IdealGas, Residual};
+use feos::core::{EquationOfState, IdealGas, Residual};
+use feos::gc_pcsaft::{GcPcSaft, GcPcSaftChemicalRecord, GcPcSaftEosParameters, GcPcSaftRecord};
+use feos::ideal_gas::{Joback, JobackRecord};
+use feos::pcsaft::{PcSaft, PcSaftParameters, PcSaftRecord};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub trait PropertyModel<C> {
 
     fn build_eos(
         &self,
-        chemical_records: Vec<C>,
+        chemical_records: &[C],
     ) -> Result<Arc<Self::EquationOfState>, ParameterError>;
 }
 
@@ -63,18 +63,15 @@ impl<T: SegmentCount<Count = f64> + Clone> PropertyModel<T> for PcSaftPropertyMo
 
     fn build_eos(
         &self,
-        chemical_records: Vec<T>,
+        chemical_records: &[T],
     ) -> Result<Arc<EquationOfState<Joback, PcSaft>>, ParameterError> {
         let pcsaft = PcSaft::new(Arc::new(PcSaftParameters::from_segments(
-            chemical_records.clone(),
+            chemical_records.to_vec(),
             self.residual.clone(),
             self.binary.clone(),
         )?));
-        let joback = Joback::new(Arc::new(JobackParameters::from_segments(
-            chemical_records,
-            self.ideal_gas.clone(),
-            None,
-        )?));
+        let joback =
+            Joback::from_segments(chemical_records.to_vec(), self.ideal_gas.clone(), None)?;
         Ok(Arc::new(EquationOfState::new(
             Arc::new(joback),
             Arc::new(pcsaft),
@@ -82,25 +79,25 @@ impl<T: SegmentCount<Count = f64> + Clone> PropertyModel<T> for PcSaftPropertyMo
     }
 }
 
-/// The PC-SAFT equation of state for a fixed molecule.
-pub struct PcSaftFixedPropertyModel(Arc<EquationOfState<Joback, PcSaft>>);
+// /// The PC-SAFT equation of state for a fixed molecule.
+// pub struct PcSaftFixedPropertyModel(Arc<EquationOfState<Joback, PcSaft>>);
 
-impl PcSaftFixedPropertyModel {
-    pub fn new(eos: &Arc<EquationOfState<Joback, PcSaft>>) -> Self {
-        Self(eos.clone())
-    }
-}
+// impl PcSaftFixedPropertyModel {
+//     pub fn new(eos: &Arc<EquationOfState<Joback, PcSaft>>) -> Self {
+//         Self(eos.clone())
+//     }
+// }
 
-impl PropertyModel<()> for PcSaftFixedPropertyModel {
-    type EquationOfState = EquationOfState<Joback, PcSaft>;
+// impl PropertyModel<()> for PcSaftFixedPropertyModel {
+//     type EquationOfState = EquationOfState<Joback, PcSaft>;
 
-    fn build_eos(
-        &self,
-        _: Vec<()>,
-    ) -> Result<Arc<EquationOfState<Joback, PcSaft>>, ParameterError> {
-        Ok(self.0.clone())
-    }
-}
+//     fn build_eos(
+//         &self,
+//         _: Vec<()>,
+//     ) -> Result<Arc<EquationOfState<Joback, PcSaft>>, ParameterError> {
+//         Ok(self.0.clone())
+//     }
+// }
 
 /// The heterosegmented gc-PC-SAFT equation of state.
 pub type GcPcSaftPropertyModel = GcPropertyModel<JobackRecord, GcPcSaftRecord>;
@@ -110,18 +107,15 @@ impl PropertyModel<SegmentAndBondCount> for GcPcSaftPropertyModel {
 
     fn build_eos(
         &self,
-        chemical_records: Vec<SegmentAndBondCount>,
+        chemical_records: &[SegmentAndBondCount],
     ) -> Result<Arc<EquationOfState<Joback, GcPcSaft>>, ParameterError> {
         let gc_pcsaft = GcPcSaft::new(Arc::new(GcPcSaftEosParameters::from_segments(
-            chemical_records.clone(),
+            chemical_records.to_vec(),
             self.residual.clone(),
             self.binary.clone(),
         )?));
-        let joback = Joback::new(Arc::new(JobackParameters::from_segments(
-            chemical_records,
-            self.ideal_gas.clone(),
-            None,
-        )?));
+        let joback =
+            Joback::from_segments(chemical_records.to_vec(), self.ideal_gas.clone(), None)?;
         Ok(Arc::new(EquationOfState::new(
             Arc::new(joback),
             Arc::new(gc_pcsaft),

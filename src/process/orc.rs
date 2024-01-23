@@ -1,7 +1,10 @@
+use crate::variables::ContinuousVariables;
+use crate::Variable;
+
 use super::{Isobar, Process, ProcessModel, ProcessState, Utility};
-use feos_core::parameter::ParameterError;
-use feos_core::si::*;
-use feos_core::{Contributions, EosResult, IdealGas, Residual, State};
+use feos::core::parameter::ParameterError;
+use feos::core::si::*;
+use feos::core::{Contributions, EosResult, IdealGas, Residual, State};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
@@ -30,9 +33,9 @@ pub struct OrganicRankineCycle {
     pub heat_source: Utility,
     pub isentropic_turbine_efficiency: f64,
     pub isentropic_pump_efficiency: f64,
-    pub min_abs_pressure: Pressure<f64>,
+    pub min_abs_pressure: Pressure,
     pub min_red_pressure: f64,
-    pub max_abs_pressure: Pressure<f64>,
+    pub max_abs_pressure: Pressure,
     pub max_red_pressure: f64,
     pub cooling: Utility,
 }
@@ -73,9 +76,9 @@ impl OrganicRankineCycle {
         heat_source: Utility,
         isentropic_turbine_efficiency: f64,
         isentropic_pump_efficiency: f64,
-        min_abs_pressure: Pressure<f64>,
+        min_abs_pressure: Pressure,
         min_red_pressure: f64,
-        max_abs_pressure: Pressure<f64>,
+        max_abs_pressure: Pressure,
         max_red_pressure: f64,
         cooling: Utility,
     ) -> Self {
@@ -98,44 +101,47 @@ impl OrganicRankineCycle {
 }
 
 impl ProcessModel for OrganicRankineCycle {
-    fn variables(&self) -> Vec<[Option<f64>; 2]> {
+    fn variables(&self) -> ContinuousVariables {
         vec![
-            [Some(0.0), None],
-            [
+            Variable::continuous(Some(0.0), Some(2.0)),
+            Variable::continuous(
                 Some(self.min_red_pressure.ln()),
                 Some(self.max_red_pressure.ln()),
-            ],
-            [
+            ),
+            Variable::continuous(
                 Some(self.min_red_pressure.ln()),
                 Some(self.max_red_pressure.ln()),
-            ],
-            [Some(0.0), None],
+            ),
+            Variable::continuous(Some(0.0), Some(2.0)),
         ]
+        .into()
     }
 
-    fn constraints(&self) -> Vec<[Option<f64>; 3]> {
+    fn equality_constraints(&self) -> usize {
+        0
+    }
+
+    fn constraints(&self) -> Vec<[Option<f64>; 2]> {
         vec![
             // Pinch constraints evaporator
-            [Some(0.0), None, None],
-            [Some(0.0), None, None],
-            [Some(0.0), None, None],
-            [Some(0.0), None, None],
+            [Some(0.0), None],
+            [Some(0.0), None],
+            [Some(0.0), None],
+            [Some(0.0), None],
             // Pinch constraints condenser
-            [Some(0.0), None, None],
-            [Some(0.0), None, None],
-            [Some(0.0), None, None],
+            [Some(0.0), None],
+            [Some(0.0), None],
+            [Some(0.0), None],
             // Absolute pressure (bar)
             [
                 Some(self.min_abs_pressure.convert_into(BAR)),
                 Some(self.max_abs_pressure.convert_into(BAR)),
-                None,
             ],
             [
                 Some(self.min_abs_pressure.convert_into(BAR)),
                 Some(self.max_abs_pressure.convert_into(BAR)),
-                None,
             ],
-            [Some(1.0), None, None],
+            [Some(1.0), None],
         ]
     }
 
@@ -143,7 +149,7 @@ impl ProcessModel for OrganicRankineCycle {
         &self,
         eos: &Arc<E>,
         x: &[f64],
-    ) -> EosResult<(Process<E>, f64, Vec<f64>)> {
+    ) -> EosResult<(f64, Vec<f64>, Vec<f64>)> {
         // unpack variables
         let mwf = x[0] * 50.0 * KILOGRAM / SECOND;
         let p_cond_red = x[1].exp();
@@ -196,6 +202,6 @@ impl ProcessModel for OrganicRankineCycle {
         constraints.push(p_evap.convert_into(BAR));
         constraints.push(p_evap.convert_into(p_cond));
 
-        Ok((process, target, constraints))
+        Ok((target, vec![], constraints))
     }
 }

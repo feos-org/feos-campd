@@ -1,6 +1,8 @@
 use super::polynomial::{Polynomial, Polynomial2};
-use super::{LinearConstraint, MolecularRepresentation, Variable};
-use feos_core::parameter::{Identifier, SegmentCount};
+use super::{
+    ContinuousVariables, DiscreteVariables, LinearConstraint, MolecularRepresentation, Variable,
+};
+use feos::core::parameter::{Identifier, SegmentCount};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -330,7 +332,7 @@ impl SuperMolecule {
 
     pub fn size_constraint(&self) -> (Vec<f64>, f64) {
         (
-            vec![1.0; self.variables().len()],
+            vec![1.0; self.structure_variables().len()],
             (self.size - self.functional_group.atoms) as f64,
         )
     }
@@ -371,17 +373,25 @@ impl SuperMolecule {
 impl MolecularRepresentation<1> for SuperMolecule {
     type ChemicalRecord = SegmentAndBondCount;
 
-    fn variables(&self) -> Vec<Variable> {
+    fn structure_variables(&self) -> DiscreteVariables {
         let n = self
             .alkyl_tails()
             .iter()
             .filter(|&&s| s > 0)
             .map(|&s| SuperAlkyl::variables(s))
             .sum::<usize>();
-        vec![Variable::binary(None); n]
+        vec![Variable::binary(); n].into()
     }
 
-    fn constraints(&self, index_vars: &[i32]) -> Vec<LinearConstraint> {
+    fn parameter_variables(&self) -> ContinuousVariables {
+        vec![].into()
+    }
+
+    fn determine_parameters(&self, _: &[f64]) -> Vec<f64> {
+        vec![]
+    }
+
+    fn constraints(&self, index_vars: &[i32], _: Option<&[i32]>) -> Vec<LinearConstraint> {
         // maximum size
         let mut constraints = Vec::new();
         let (coefs, size) = self.size_constraint();
@@ -402,7 +412,7 @@ impl MolecularRepresentation<1> for SuperMolecule {
         constraints
     }
 
-    fn build(&self, y: &[f64]) -> [SegmentAndBondCount; 1] {
+    fn build(&self, y: &[f64], _: &[f64]) -> [SegmentAndBondCount; 1] {
         match self.alkyls.len() {
             1 => (),
             2 => return [self.build_ketone(y)],
@@ -644,7 +654,7 @@ mod test {
     #[test]
     fn test_build() {
         let [SegmentAndBondCount { segments, bonds }] =
-            SuperMolecule::alcohol(4).build(&[0.9, 0.8, 0.5, 0.3]);
+            SuperMolecule::alcohol(4).build(&[0.9, 0.8, 0.5, 0.3], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_relative_eq!(segments["CH3"], 1.326);
         assert_relative_eq!(segments["CH2"], 0.958);
@@ -659,7 +669,7 @@ mod test {
     fn test_alcohol() {
         let supermolecule = SuperMolecule::alcohol(5);
         let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.variables().len()]);
+            supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 4.0);
         assert_eq!(segments["CH2"], 1.0);
@@ -678,7 +688,7 @@ mod test {
     fn test_ketone() {
         let supermolecule = SuperMolecule::ketone(5);
         let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.variables().len()]);
+            supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 3.0);
         assert_eq!(segments["CH2"], 1.0);
@@ -695,7 +705,7 @@ mod test {
     fn test_alkene() {
         let supermolecule = SuperMolecule::alkene(5);
         let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.variables().len()]);
+            supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 4.0);
         assert_eq!(segments["CH2"], 1.0);
@@ -721,9 +731,9 @@ mod test {
 
     #[test]
     fn test_build_disjunct() {
-        println!("{}", molecule_disjunct().variables().len());
+        println!("{}", molecule_disjunct().structure_variables().len());
         let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 0.8, 0.6, 0.1, 0.3, 0.2, 0.1, 0.5, 0.3, 0.2]);
+            molecule_disjunct().build(&[1.0, 0.8, 0.6, 0.1, 0.3, 0.2, 0.1, 0.5, 0.3, 0.2], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_relative_eq!(segments["CH3"], 1.464);
         assert_relative_eq!(segments["CH2"], 1.17);
@@ -738,7 +748,7 @@ mod test {
     #[test]
     fn test_ethanol() {
         let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+            molecule_disjunct().build(&[1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 1.0);
         assert_eq!(segments["CH2"], 1.0);
@@ -750,7 +760,7 @@ mod test {
     #[test]
     fn test_2_methoxybutane() {
         let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+            molecule_disjunct().build(&[1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 2.0);
         assert_eq!(segments[">CH"], 1.0);
@@ -762,7 +772,7 @@ mod test {
     #[test]
     fn test_acetone() {
         let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+            molecule_disjunct().build(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], &[]);
         println!("{segments:?}\n{bonds:?}");
         assert_eq!(segments["CH3"], 2.0);
         assert_eq!(segments[">C=O"], 1.0);
