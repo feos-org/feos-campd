@@ -48,17 +48,6 @@ pub trait ProcessModel {
     ) -> Result<[Vec<i32>; 3], KnitroError> {
         // declare continuous variables
         let index_vars = self.variables().setup_knitro(kc, x0, mode)?;
-        // let variables = self.variables();
-        // let index_vars = kc.add_vars(variables.len())?;
-        // for (&i, [l, u]) in index_vars.iter().zip(variables.into_iter()) {
-        //     kc.set_var_lobnd(i, l)?;
-        //     kc.set_var_upbnd(i, u)?;
-        // }
-        // if let OptimizationMode::Gradients = mode {
-        //     kc.set_var_fxbnds(&index_vars, x0.unwrap())?;
-        // } else if let Some(x0) = x0 {
-        //     kc.set_var_primal_initial_values(&index_vars, x0)?;
-        // }
 
         // add equality constraints
         let index_eq_cons = kc.add_cons(self.equality_constraints())?;

@@ -6,6 +6,7 @@ use crate::OptimizationMode;
 use knitro_rs::{Knitro, KnitroError};
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Variable<const INTEGER: bool> {
     lobnd: Option<f64>,
     upbnd: Option<f64>,

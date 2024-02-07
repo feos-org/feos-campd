@@ -24,6 +24,6 @@ knitro_rs = { version = "0.1", path = "knitro_rs", optional = true }
 approx = "0.5"
 
 [features]
-default = ["knitro_12"]
+default = []
 knitro_12 = ["knitro_rs/knitro_12"]
 knitro_13 = ["knitro_rs/knitro_13"]
