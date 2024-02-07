@@ -113,8 +113,8 @@ pub trait MolecularRepresentation<const N: usize> {
             let y0 = &solution.y;
             let c = kc.add_con()?;
             // let qcoefs: Vec<_> = y0.iter().map(|_| 1.0).collect();
-            let lcoefs: Vec<_> = y0.iter().map(|&n0| 1.0 - 2.0 * n0 as f64).collect();
-            let lbond = 1.0 - y0.iter().map(|n0| n0.pow(2) as f64).sum::<f64>();
+            let lcoefs: Vec<_> = y0.iter().map(|&y0| 1.0 - 2.0 * y0 as f64).collect();
+            let lbond = 1.0 - y0.iter().map(|&y0| y0 as f64).sum::<f64>();
             // kc.add_con_quadratic_struct_one(
             //     c,
             //     &index_structure_vars,

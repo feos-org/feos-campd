@@ -187,6 +187,29 @@ fn test_outer_approximation_ranking() -> EosResult<()> {
 
 #[test]
 #[cfg(feature = "knitro_rs")]
+fn test_outer_approximation_ranking_molecules() -> EosResult<()> {
+    let orc = OrganicRankineCycle::from_json("tests/orc.json")?;
+    let pcsaft = CoMTCAMDPropertyModel;
+    let mut problem = OptimizationProblem::new(
+        CoMTCAMD::from_json("tests/gross_2001_comps.json")?,
+        pcsaft,
+        orc,
+    );
+    let y0 = problem
+        .molecules
+        .get_initial_values("molecule", &HashMap::from([("cyclopentane", 1)]));
+    problem.outer_approximation_ranking(
+        &y0,
+        false,
+        10,
+        Some("tests/options_target.opt"),
+        Some("tests/options_MILP.opt"),
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "knitro_rs")]
 fn test_supermolecule_disjunct() -> Result<(), KnitroError> {
     let molecule = SuperMolecule::all(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
