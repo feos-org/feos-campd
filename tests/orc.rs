@@ -4,6 +4,8 @@ use feos::ideal_gas::{Joback, JobackRecord};
 use feos::pcsaft::{PcSaft, PcSaftParameters};
 use feos_campd::process::{OrganicRankineCycle, ProcessModel};
 use feos_campd::ContinuousVariables;
+#[cfg(feature = "knitro_rs")]
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -88,65 +90,98 @@ fn test_fixed() -> Result<(), KnitroError> {
         &[1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         Some("tests/options_target.opt"),
     )?;
-    let mut problem =
-        OptimizationProblem::new(CoMTCAMD::new(&[]).unwrap(), CoMTCAMDPropertyModel, orc);
+    let mut problem = OptimizationProblem::new(
+        CoMTCAMD::from_json("tests/comt_camd_non_assoc.json").unwrap(),
+        CoMTCAMDPropertyModel,
+        orc,
+    );
     println!("{target} {y:?} {x:?}");
     assert_relative_eq!(target, -1.5905756277031002, max_relative = 1e-5);
+
+    let y0 = problem
+        .molecules
+        .get_initial_values("alkanes", &HashMap::from([("CH3", 2), ("CH2", 1)]));
     let (f, [x, y, p]) = problem.solve_fixed(
         Some(&[0.786, -4.5, -1.2, 0.0]),
-        &[
-            vec![2.0, 1.0],
-            vec![0.0; 18],
-            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        ]
-        .concat(),
+        &y0,
         Some("tests/options_target.opt"),
     )?;
     println!("{f}");
     println!("{x:?}");
     println!("{y:?}");
     println!("{p:?}");
-    assert_relative_eq!(target, -1.5905756277031002, max_relative = 1e-5);
+    assert_relative_eq!(f, -1.5905756277031002, max_relative = 1e-5);
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "knitro_rs")]
-fn test_comt_camd() -> Result<(), KnitroError> {
-    let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
+fn test_outer_approximation() -> EosResult<()> {
+    let orc = OrganicRankineCycle::from_json("tests/orc.json")?;
     let pcsaft = CoMTCAMDPropertyModel;
-    let mut problem = OptimizationProblem::new(CoMTCAMD::new(&[]).unwrap(), pcsaft, orc);
-    #[cfg(feature = "knitro_13")]
-    let options = Some("tests/options_13.opt");
-    #[cfg(feature = "knitro_12")]
-    let options = Some("tests/options_12.opt");
-    let (_, [x, y, p]) =
-        problem.solve_target(&[0.786, -4.5, -1.2, 0.8], Some("tests/options_target.opt"))?;
-    println!("{x:?}");
-    println!("{y:?}");
-    println!("{p:?}");
-    let solution = problem.solve_knitro_once(&x, Some(&y), Some(&p), options)?;
+    let mut problem = OptimizationProblem::new(
+        CoMTCAMD::from_json("tests/comt_camd_non_assoc.json")?,
+        pcsaft,
+        orc,
+    );
+    let y0 = problem.molecules.get_initial_values(
+        "alkanes",
+        &HashMap::from([("CH3", 3), ("CH2", 1), (">CH", 1)]),
+    );
+    let solution = problem.solve_outer_approximation(
+        y0,
+        false,
+        Some("tests/options_target.opt"),
+        Some("tests/options_MILP.opt"),
+    )?;
     assert_relative_eq!(-1.5905756277031002, solution.target, max_relative = 1e-5);
     Ok(())
 }
 
 #[test]
 #[cfg(feature = "knitro_rs")]
-fn test_outer_approximation() -> Result<(), KnitroError> {
-    let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
+fn test_outer_approximation_molecules() -> EosResult<()> {
+    let orc = OrganicRankineCycle::from_json("tests/orc.json")?;
     let pcsaft = CoMTCAMDPropertyModel;
-    let mut problem = OptimizationProblem::new(CoMTCAMD::new(&[]).unwrap(), pcsaft, orc);
-    problem.solve_outer_approximation(
-        [
-            vec![3.0, 3.0, 1.0],
-            vec![0.0; 17],
-            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        ]
-        .concat(),
+    let mut problem = OptimizationProblem::new(
+        CoMTCAMD::from_json("tests/gross_2001_comps.json")?,
+        pcsaft,
+        orc,
+    );
+    let y0 = problem
+        .molecules
+        .get_initial_values("molecule", &HashMap::from([("cyclopentane", 1)]));
+    let solution = problem.solve_outer_approximation(
+        y0,
         false,
         Some("tests/options_target.opt"),
         Some("tests/options_MILP.opt"),
     )?;
+    assert_relative_eq!(-1.6261766497437158, solution.target, max_relative = 1e-5);
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "knitro_rs")]
+fn test_outer_approximation_ranking() -> EosResult<()> {
+    let orc = OrganicRankineCycle::from_json("tests/orc.json")?;
+    let pcsaft = CoMTCAMDPropertyModel;
+    let mut problem = OptimizationProblem::new(
+        CoMTCAMD::from_json("tests/comt_camd_non_assoc.json")?,
+        pcsaft,
+        orc,
+    );
+    let y0 = problem.molecules.get_initial_values(
+        "alkanes",
+        &HashMap::from([("CH3", 3), ("CH2", 1), (">CH", 1)]),
+    );
+    problem.outer_approximation_ranking(
+        &y0,
+        false,
+        10,
+        Some("tests/options_target.opt"),
+        Some("tests/options_MILP.opt"),
+    );
     Ok(())
 }
 

@@ -4,6 +4,7 @@ use crate::{
     MolecularRepresentation, OptimizationMode, OptimizationProblem, OptimizationResult,
     PropertyModel,
 };
+use feos::core::EosResult;
 use knitro_rs::{Knitro, KnitroError};
 
 impl<
@@ -19,17 +20,20 @@ impl<
         update_lower_bound: bool,
         options_nlp: Option<&str>,
         options_mip: Option<&str>,
-    ) -> Result<(), KnitroError> {
+    ) -> EosResult<OptimizationResult> {
         let mut f_l = f64::MIN;
         let mut f_u = f64::MAX;
 
-        let mut res = self.solve_fixed(None, &y_fixed, options_nlp)?;
+        // Evaluate NLP for initial guess
+        let mut res = self.solve_fixed(None, &y_fixed, options_nlp).unwrap();
         let y: Vec<_> = y_fixed.iter().map(|y| *y as usize).collect();
         let smiles = &self.molecules.smiles(&y)[0];
-        println!("{:8.5} {:?} {smiles}", res.0, y);
+        println!("{:8.5} {smiles}", res.0);
         for _ in 0..500 {
             let (target, [ref x, ref y, ref p]) = res;
             f_u = f_u.min(target);
+
+            // Evaluate gradients
             let mut gradients = Default::default();
             self.solve(
                 Some(x),
@@ -38,37 +42,81 @@ impl<
                 options_nlp,
                 OptimizationMode::Gradients,
                 Some(&mut gradients),
-            )?;
-            let (x, (f, g, h), lambda) = gradients;
+            )
+            .unwrap();
+            let (vars, (f, g, h), lambda) = gradients;
             let y: Vec<_> = y.iter().map(|y| *y as usize).collect();
-            self.solutions.insert(OptimizationResult::new(
+            let result = OptimizationResult::new(
                 target,
-                vec![],
+                self.molecules.smiles(&y).to_vec(),
                 x.clone(),
                 y.clone(),
                 p.clone(),
-            ));
+            );
+            self.solutions.insert(result.clone());
 
-            let (f, y) = self.solve_master(x, (f, g, h), lambda, f_l, f_u, options_mip)?;
+            // Solve master MILP
+            let Ok((f, y)) = self.solve_master(vars, (f, g, h), lambda, f_l, f_u, options_mip)
+            else {
+                return Ok(result);
+            };
             y_fixed = y;
             if update_lower_bound {
                 f_l = f;
             }
 
+            // Solve NLP subproblem
             let r = self.solve_fixed(None, &y_fixed, options_nlp);
             if let Ok(r) = r {
                 res = r;
-                let (target, [x, y, p]) = res.clone();
+                let (_, [_, ref y, _]) = res;
                 let y: Vec<_> = y.iter().map(|y| *y as usize).collect();
                 let smiles = &self.molecules.smiles(&y)[0];
-                println!("{:8.5} {:?} {smiles}", res.0, y);
-
-                // println!("{} {:?}", res.1.val, res.0);
-            } else {
-                println!("{:8.5}", 0.0);
+                println!("{:8.5} {smiles}", res.0);
             }
         }
-        Ok(())
+        Err(feos::core::EosError::NotConverged(
+            "Outer approximation".into(),
+        ))
+    }
+
+    pub fn outer_approximation_ranking(
+        &mut self,
+        y_fixed: &[f64],
+        update_lower_bound: bool,
+        n_solutions: usize,
+        options_nlp: Option<&str>,
+        options_mip: Option<&str>,
+    ) {
+        let y_usize: Vec<_> = y_fixed.iter().map(|&y| y as usize).collect();
+        for k in 0..n_solutions {
+            self.solutions.retain(|e| e.y != y_usize);
+            match self.solve_outer_approximation(
+                y_fixed.to_vec(),
+                update_lower_bound,
+                options_nlp,
+                options_mip,
+            ) {
+                Ok(result) => {
+                    let mut solutions: Vec<_> = self.solutions.iter().collect();
+                    solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
+                    println!("\nRun {}", k + 1);
+                    for (k, solution) in solutions.into_iter().enumerate() {
+                        let k = if solution == &result || solution.target < result.target {
+                            format!("{:3}", k + 1)
+                        } else {
+                            "   ".into()
+                        };
+                        let smiles = match &solution.smiles[..] {
+                            [smiles] => smiles.clone(),
+                            _ => format!("[{}]", solution.smiles.join(", ")),
+                        };
+                        println!("{k} {:.7} {:.5?} {smiles}", solution.target, solution.x);
+                    }
+                }
+                Err(e) => println!("\nRun {}\n{e}", k + 1),
+            }
+        }
     }
 
     fn solve_master(
@@ -91,15 +139,6 @@ impl<
 
         // Declare process variables
         let x = self.process.variables().setup_knitro(&kc, None, mode)?;
-
-        // // declare composition variables
-        // let c = kc.add_vars(self.comps)?;
-        // for &i in c.iter() {
-        //     kc.set_var_lobnd(i, 0.01)?;
-        // }
-        // let con = kc.add_con()?;
-        // kc.add_con_linear_struct_one(con, &c, &vec![1.0; x.len()])?;
-        // kc.set_con_eqbnd(con, 1.0)?;
 
         let [y, p] = self
             .molecules
