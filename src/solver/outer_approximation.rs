@@ -33,6 +33,9 @@ impl<
             let (target, [ref x, ref y, ref p]) = res;
             f_u = f_u.min(target);
 
+            let y_usize: Vec<_> = y.iter().map(|&y| y as usize).collect();
+            self.solutions.retain(|e| e.y != y_usize);
+
             // Evaluate gradients
             let mut gradients = Default::default();
             self.solve(
@@ -67,12 +70,20 @@ impl<
 
             // Solve NLP subproblem
             let r = self.solve_fixed(None, &y_fixed, options_nlp);
+            let y: Vec<_> = y_fixed.iter().map(|y| *y as usize).collect();
+            let smiles = self.molecules.smiles(&y);
             if let Ok(r) = r {
                 res = r;
-                let (_, [_, ref y, _]) = res;
-                let y: Vec<_> = y.iter().map(|y| *y as usize).collect();
-                let smiles = &self.molecules.smiles(&y)[0];
-                println!("{:8.5} {smiles}", res.0);
+                println!("{:8.5} {}", res.0, smiles[0]);
+            } else {
+                self.solutions.insert(OptimizationResult::new(
+                    0.0,
+                    smiles.to_vec(),
+                    vec![],
+                    y,
+                    vec![],
+                ));
+                println!("{} not converged!", smiles[0])
             }
         }
         Err(feos::core::EosError::NotConverged(
@@ -111,8 +122,9 @@ impl<
                             [smiles] => smiles.clone(),
                             _ => format!("[{}]", solution.smiles.join(", ")),
                         };
-                        println!("{k} {:.7} {:.5?} {smiles}", solution.target, solution.x);
+                        println!("{k} {:10.7} {:.5?} {smiles}", solution.target, solution.x);
                     }
+                    println!();
                 }
                 Err(e) => println!("\nRun {}\n{e}", k + 1),
             }
