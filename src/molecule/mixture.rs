@@ -1,4 +1,4 @@
-use super::{ContinuousVariables, DiscreteVariables, LinearConstraint, MolecularRepresentation};
+use super::{LinearConstraint, MolecularRepresentation, ParameterVariables, StructureVariables};
 
 impl<
         C,
@@ -16,13 +16,13 @@ impl<
         [cr1, cr2]
     }
 
-    fn structure_variables(&self) -> DiscreteVariables {
+    fn structure_variables(&self) -> StructureVariables {
         let mut variables = self.0.structure_variables();
         variables.append(&mut self.1.structure_variables());
         variables
     }
 
-    fn parameter_variables(&self) -> ContinuousVariables {
+    fn parameter_variables(&self) -> ParameterVariables {
         let mut variables = self.0.parameter_variables();
         variables.append(&mut self.1.parameter_variables());
         variables

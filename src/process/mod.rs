@@ -1,5 +1,5 @@
 //! Simple unit operations and process models.
-use crate::variables::ContinuousVariables;
+use crate::variables::ProcessVariables;
 #[cfg(feature = "knitro_rs")]
 use crate::OptimizationMode;
 use feos::core::si::*;
@@ -22,7 +22,7 @@ pub use process_state::{Isobar, ProcessState};
 /// Generic process model to be used in an [OptimizationProblem](super::OptimizationProblem).
 pub trait ProcessModel {
     /// For each continuous process variable return the lower and upper bounds.
-    fn variables(&self) -> ContinuousVariables;
+    fn variables(&self) -> ProcessVariables;
 
     /// Return the number of equality constraints (h(x)=0)
     fn equality_constraints(&self) -> usize {

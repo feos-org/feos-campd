@@ -1,6 +1,6 @@
 use super::polynomial::{Polynomial, Polynomial2};
 use super::{
-    ContinuousVariables, DiscreteVariables, LinearConstraint, MolecularRepresentation, Variable,
+    LinearConstraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
 };
 use feos::core::parameter::{Identifier, SegmentCount};
 use serde::{Deserialize, Serialize};
@@ -373,7 +373,7 @@ impl SuperMolecule {
 impl MolecularRepresentation<1> for SuperMolecule {
     type ChemicalRecord = SegmentAndBondCount;
 
-    fn structure_variables(&self) -> DiscreteVariables {
+    fn structure_variables(&self) -> StructureVariables {
         let n = self
             .alkyl_tails()
             .iter()
@@ -383,7 +383,7 @@ impl MolecularRepresentation<1> for SuperMolecule {
         vec![Variable::binary(); n].into()
     }
 
-    fn parameter_variables(&self) -> ContinuousVariables {
+    fn parameter_variables(&self) -> ParameterVariables {
         vec![].into()
     }
 

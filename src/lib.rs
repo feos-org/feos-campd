@@ -17,9 +17,7 @@ pub use molecule::{
     CoMTCAMD, CoMTCAMDPropertyModel, MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
 };
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
-pub use variables::{
-    ContinuousVariables, DiscreteVariables, LinearConstraint, Variable, Variables,
-};
+pub use variables::{LinearConstraint, ProcessVariables, StructureVariables, Variable, Variables};
 
 #[cfg(feature = "knitro_rs")]
 mod solver;

@@ -3,7 +3,7 @@ use feos::core::{EosResult, EquationOfState, IdealGas, Residual};
 use feos::ideal_gas::{Joback, JobackRecord};
 use feos::pcsaft::{PcSaft, PcSaftParameters};
 use feos_campd::process::{OrganicRankineCycle, ProcessModel};
-use feos_campd::ContinuousVariables;
+use feos_campd::ProcessVariables;
 #[cfg(feature = "knitro_rs")]
 use std::collections::HashMap;
 use std::fs::File;
@@ -178,7 +178,7 @@ fn test_outer_approximation_ranking() -> EosResult<()> {
     problem.outer_approximation_ranking(
         &y0,
         false,
-        10,
+        9,
         Some("tests/options_target.opt"),
         Some("tests/options_MILP.opt"),
     );
@@ -245,7 +245,7 @@ fn test_supermolecule_mix() {
 
 struct NoModel;
 impl ProcessModel for NoModel {
-    fn variables(&self) -> ContinuousVariables {
+    fn variables(&self) -> ProcessVariables {
         vec![].into()
     }
 
