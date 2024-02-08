@@ -7,49 +7,54 @@ use knitro_rs::{Knitro, KnitroError};
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-pub struct Variable<const INTEGER: bool> {
+pub struct Variable<const INTEGER: bool, const FIXABLE: bool> {
     lobnd: Option<f64>,
     upbnd: Option<f64>,
 }
 
-pub struct Variables<const INTEGER: bool>(Vec<Variable<INTEGER>>);
+pub struct Variables<const INTEGER: bool, const FIXABLE: bool>(Vec<Variable<INTEGER, FIXABLE>>);
 
-impl<const INTEGER: bool> Deref for Variables<INTEGER> {
-    type Target = Vec<Variable<INTEGER>>;
+impl<const INTEGER: bool, const FIXABLE: bool> Deref for Variables<INTEGER, FIXABLE> {
+    type Target = Vec<Variable<INTEGER, FIXABLE>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<const INTEGER: bool> DerefMut for Variables<INTEGER> {
+impl<const INTEGER: bool, const FIXABLE: bool> DerefMut for Variables<INTEGER, FIXABLE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<const INTEGER: bool> FromIterator<Variable<INTEGER>> for Variables<INTEGER> {
-    fn from_iter<T: IntoIterator<Item = Variable<INTEGER>>>(iter: T) -> Self {
+impl<const INTEGER: bool, const FIXABLE: bool> FromIterator<Variable<INTEGER, FIXABLE>>
+    for Variables<INTEGER, FIXABLE>
+{
+    fn from_iter<T: IntoIterator<Item = Variable<INTEGER, FIXABLE>>>(iter: T) -> Self {
         Self(Vec::from_iter(iter))
     }
 }
 
-impl<const INTEGER: bool> From<Vec<Variable<INTEGER>>> for Variables<INTEGER> {
-    fn from(value: Vec<Variable<INTEGER>>) -> Self {
+impl<const INTEGER: bool, const FIXABLE: bool> From<Vec<Variable<INTEGER, FIXABLE>>>
+    for Variables<INTEGER, FIXABLE>
+{
+    fn from(value: Vec<Variable<INTEGER, FIXABLE>>) -> Self {
         Self(value)
     }
 }
 
-pub type ContinuousVariables = Variables<false>;
-pub type DiscreteVariables = Variables<true>;
+pub type ProcessVariables = Variables<false, false>;
+pub type ParameterVariables = Variables<false, true>;
+pub type StructureVariables = Variables<true, true>;
 
-impl<const INTEGER: bool> Variable<INTEGER> {
+impl<const INTEGER: bool, const FIXABLE: bool> Variable<INTEGER, FIXABLE> {
     fn new(lobnd: Option<f64>, upbnd: Option<f64>) -> Self {
         Self { lobnd, upbnd }
     }
 }
 
-impl Variable<true> {
+impl Variable<true, true> {
     pub fn binary() -> Self {
         Self::integer(0, 1)
     }
@@ -61,17 +66,19 @@ impl Variable<true> {
     }
 }
 
-impl Variable<false> {
+impl Variable<false, true> {
     pub fn free() -> Self {
-        Self::continuous(None, None)
-    }
-
-    pub fn continuous(lobnd: Option<f64>, upbnd: Option<f64>) -> Self {
-        Self::new(lobnd, upbnd)
+        Self::new(None, None)
     }
 }
 
-impl<const INTEGER: bool> Variables<INTEGER> {
+impl Variable<false, false> {
+    pub fn continuous(lobnd: f64, upbnd: f64) -> Self {
+        Self::new(Some(lobnd), Some(upbnd))
+    }
+}
+
+impl<const INTEGER: bool, const FIXABLE: bool> Variables<INTEGER, FIXABLE> {
     #[cfg(feature = "knitro_rs")]
     pub fn setup_knitro(
         self,
@@ -91,9 +98,10 @@ impl<const INTEGER: bool> Variables<INTEGER> {
         }
 
         if let (_, OptimizationMode::Gradients) | (true, OptimizationMode::FixedMolecule) =
-            (INTEGER, mode)
+            (FIXABLE, mode)
         {
             kc.set_var_fxbnds(&index_vars, values.unwrap())?;
+            kc.set_var_primal_initial_values(&index_vars, values.unwrap())?;
         } else if let Some(values) = values {
             kc.set_var_primal_initial_values(&index_vars, values)?;
         }
@@ -106,7 +114,7 @@ impl<const INTEGER: bool> Variables<INTEGER> {
     }
 }
 
-impl<const INTEGER: bool> Variable<INTEGER> {
+impl<const INTEGER: bool, const FIXABLE: bool> Variable<INTEGER, FIXABLE> {
     #[cfg(feature = "knitro_rs")]
     pub fn setup_knitro(&self, kc: &Knitro) -> Result<i32, KnitroError> {
         let y = kc.add_var()?;

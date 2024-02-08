@@ -1,5 +1,5 @@
 use super::MolecularRepresentation;
-use crate::variables::{ContinuousVariables, DiscreteVariables, LinearConstraint, Variable};
+use crate::variables::{LinearConstraint, ParameterVariables, StructureVariables, Variable};
 use crate::PropertyModel;
 use feos::core::parameter::{Parameter, ParameterError, PureRecord};
 use feos::core::EquationOfState;
@@ -134,11 +134,11 @@ impl MolecularRepresentation<1> for CoMTCAMD {
         [p.to_vec()]
     }
 
-    fn structure_variables(&self) -> DiscreteVariables {
+    fn structure_variables(&self) -> StructureVariables {
         vec![Variable::binary(); self.parameters[0].len() + self.structures.len()].into()
     }
 
-    fn parameter_variables(&self) -> ContinuousVariables {
+    fn parameter_variables(&self) -> ParameterVariables {
         vec![Variable::free(); 10].into()
     }
 
@@ -173,13 +173,15 @@ impl MolecularRepresentation<1> for CoMTCAMD {
         // Connect molecular structures and segments
         for (structure, &y) in self.structures.iter().zip(y_vars) {
             if let Some(groups) = &structure.groups {
-                let (vars, coefs): (Vec<_>, Vec<_>) = groups
-                    .iter()
-                    .flat_map(|g| n[g as &str].iter().copied())
-                    .zip(std::iter::repeat(1.0))
-                    .chain(std::iter::once((y, -(structure.count as f64))))
-                    .unzip();
-                constraints.push(LinearConstraint::new(vars, coefs).eqbnd(0.0));
+                if !groups.is_empty() {
+                    let (vars, coefs): (Vec<_>, Vec<_>) = groups
+                        .iter()
+                        .flat_map(|g| n[g as &str].iter().copied())
+                        .zip(std::iter::repeat(1.0))
+                        .chain(std::iter::once((y, -(structure.count as f64))))
+                        .unzip();
+                    constraints.push(LinearConstraint::new(vars, coefs).eqbnd(0.0));
+                }
             } else {
                 let coefs = vec![1.0; n_vars.len()];
                 constraints.push(LinearConstraint::new(n_vars.to_vec(), coefs).eqbnd(1.0));

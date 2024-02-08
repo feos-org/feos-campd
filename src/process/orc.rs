@@ -1,4 +1,4 @@
-use crate::variables::ContinuousVariables;
+use crate::variables::ProcessVariables;
 use crate::Variable;
 
 use super::{Isobar, Process, ProcessModel, ProcessState, Utility};
@@ -101,18 +101,12 @@ impl OrganicRankineCycle {
 }
 
 impl ProcessModel for OrganicRankineCycle {
-    fn variables(&self) -> ContinuousVariables {
+    fn variables(&self) -> ProcessVariables {
         vec![
-            Variable::continuous(Some(0.0), Some(2.0)),
-            Variable::continuous(
-                Some(self.min_red_pressure.ln()),
-                Some(self.max_red_pressure.ln()),
-            ),
-            Variable::continuous(
-                Some(self.min_red_pressure.ln()),
-                Some(self.max_red_pressure.ln()),
-            ),
-            Variable::continuous(Some(0.0), Some(2.0)),
+            Variable::continuous(0.0, 2.0),
+            Variable::continuous(self.min_red_pressure.ln(), self.max_red_pressure.ln()),
+            Variable::continuous(self.min_red_pressure.ln(), self.max_red_pressure.ln()),
+            Variable::continuous(0.0, 2.0),
         ]
         .into()
     }

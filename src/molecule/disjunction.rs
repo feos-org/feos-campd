@@ -1,5 +1,5 @@
 use super::{
-    ContinuousVariables, DiscreteVariables, LinearConstraint, MolecularRepresentation, Variable,
+    LinearConstraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
 };
 use std::ops::{Add, Mul};
 
@@ -11,7 +11,7 @@ impl<
 {
     type ChemicalRecord = C;
 
-    fn structure_variables(&self) -> DiscreteVariables {
+    fn structure_variables(&self) -> StructureVariables {
         let mut variables = self
             .iter()
             .map(|s| s.structure_variables())
@@ -21,7 +21,7 @@ impl<
         variables
     }
 
-    fn parameter_variables(&self) -> ContinuousVariables {
+    fn parameter_variables(&self) -> ParameterVariables {
         self.iter()
             .map(|s| s.parameter_variables())
             .max_by_key(|v| v.len())

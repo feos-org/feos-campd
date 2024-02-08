@@ -1,4 +1,4 @@
-use crate::variables::{ContinuousVariables, DiscreteVariables, LinearConstraint, Variable};
+use crate::variables::{LinearConstraint, ParameterVariables, StructureVariables, Variable};
 #[cfg(feature = "knitro_rs")]
 use crate::{OptimizationMode, OptimizationResult};
 use itertools::Itertools;
@@ -21,9 +21,9 @@ pub trait MolecularRepresentation<const N: usize> {
     type ChemicalRecord;
     fn build(&self, y: &[f64], p: &[f64]) -> [Self::ChemicalRecord; N];
 
-    fn structure_variables(&self) -> DiscreteVariables;
+    fn structure_variables(&self) -> StructureVariables;
 
-    fn parameter_variables(&self) -> ContinuousVariables;
+    fn parameter_variables(&self) -> ParameterVariables;
 
     fn determine_parameters(&self, y: &[f64]) -> Vec<f64>;
 
