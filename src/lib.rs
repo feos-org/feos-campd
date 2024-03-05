@@ -7,6 +7,7 @@ use std::fmt;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufReader, BufWriter};
+use std::marker::PhantomData;
 use std::path::Path;
 
 mod molecule;
@@ -14,13 +15,18 @@ pub mod process;
 mod property;
 mod variables;
 pub use molecule::{
-    CoMTCAMD, CoMTCAMDPropertyModel, MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
+    CoMTCAMD, CoMTCAMDBinary, MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
 };
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
-pub use variables::{LinearConstraint, ProcessVariables, StructureVariables, Variable, Variables};
+pub use variables::{Constraint, ProcessVariables, StructureVariables, Variable, Variables};
 
 #[cfg(feature = "knitro_rs")]
 mod solver;
+#[cfg(feature = "knitro_rs")]
+pub use solver::OuterApproximationAlgorithm;
+
+#[cfg(feature = "python")]
+mod python;
 
 #[derive(Clone, Copy)]
 pub enum OptimizationMode {
@@ -28,20 +34,23 @@ pub enum OptimizationMode {
     Gradients,
     Target,
     MolecularDesign,
+    Feasibility,
 }
 
 /// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel](process::ProcessModel).
 #[derive(Serialize, Deserialize)]
-pub struct OptimizationProblem<M, R, P, const N: usize> {
+pub struct OptimizationProblem<E, M, R, P> {
+    eos: PhantomData<E>,
     pub molecules: M,
     pub property_model: R,
     pub process: P,
     pub solutions: HashSet<OptimizationResult>,
 }
 
-impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
+impl<E, M, R, P> OptimizationProblem<E, M, R, P> {
     pub fn new(molecules: M, property_model: R, process: P) -> Self {
         Self {
+            eos: PhantomData,
             molecules,
             property_model,
             process,
@@ -50,7 +59,7 @@ impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
     }
 }
 
-impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
+impl<E, M, R, P> OptimizationProblem<E, M, R, P> {
     pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
     where
         for<'a> M: Deserialize<'a>,

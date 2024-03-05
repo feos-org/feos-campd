@@ -10,6 +10,7 @@ use knitro_rs::{Knitro, KnitroError};
 pub struct Variable<const INTEGER: bool, const FIXABLE: bool> {
     lobnd: Option<f64>,
     upbnd: Option<f64>,
+    init: Option<f64>,
 }
 
 pub struct Variables<const INTEGER: bool, const FIXABLE: bool>(Vec<Variable<INTEGER, FIXABLE>>);
@@ -49,8 +50,8 @@ pub type ParameterVariables = Variables<false, true>;
 pub type StructureVariables = Variables<true, true>;
 
 impl<const INTEGER: bool, const FIXABLE: bool> Variable<INTEGER, FIXABLE> {
-    fn new(lobnd: Option<f64>, upbnd: Option<f64>) -> Self {
-        Self { lobnd, upbnd }
+    fn new(lobnd: Option<f64>, upbnd: Option<f64>, init: Option<f64>) -> Self {
+        Self { lobnd, upbnd, init }
     }
 }
 
@@ -62,19 +63,19 @@ impl Variable<true, true> {
     pub fn integer(lobnd: usize, upbnd: usize) -> Self {
         let lobnd = lobnd as f64;
         let upbnd = upbnd as f64;
-        Self::new(Some(lobnd), Some(upbnd))
+        Self::new(Some(lobnd), Some(upbnd), None)
     }
 }
 
 impl Variable<false, true> {
     pub fn free() -> Self {
-        Self::new(None, None)
+        Self::new(None, None, None)
     }
 }
 
 impl Variable<false, false> {
-    pub fn continuous(lobnd: f64, upbnd: f64) -> Self {
-        Self::new(Some(lobnd), Some(upbnd))
+    pub fn continuous(lobnd: f64, upbnd: f64, init: f64) -> Self {
+        Self::new(Some(lobnd), Some(upbnd), Some(init))
     }
 }
 
@@ -97,7 +98,8 @@ impl<const INTEGER: bool, const FIXABLE: bool> Variables<INTEGER, FIXABLE> {
             return Ok(index_vars);
         }
 
-        if let (_, OptimizationMode::Gradients) | (true, OptimizationMode::FixedMolecule) =
+        if let (_, OptimizationMode::Gradients)
+        | (true, OptimizationMode::FixedMolecule | OptimizationMode::Feasibility) =
             (FIXABLE, mode)
         {
             kc.set_var_fxbnds(&index_vars, values.unwrap())?;
@@ -124,25 +126,40 @@ impl<const INTEGER: bool, const FIXABLE: bool> Variable<INTEGER, FIXABLE> {
         if let Some(upbnd) = self.upbnd {
             kc.set_var_upbnd(y, upbnd)?;
         }
+        if let Some(init) = self.init {
+            kc.set_var_primal_initial_value(y, init)?;
+        }
         Ok(y)
     }
 }
 
-pub struct LinearConstraint {
-    pub vars: Vec<i32>,
-    pub coefs: Vec<f64>,
+#[derive(Default)]
+pub struct Constraint {
+    pub lvars: Vec<i32>,
+    pub lcoefs: Vec<f64>,
+    pub qvars1: Vec<i32>,
+    pub qvars2: Vec<i32>,
+    pub qcoefs: Vec<f64>,
     pub lobnd: Option<f64>,
     pub upbnd: Option<f64>,
 }
 
-impl LinearConstraint {
-    pub fn new(vars: Vec<i32>, coefs: Vec<f64>) -> Self {
-        Self {
-            vars,
-            coefs,
-            lobnd: None,
-            upbnd: None,
-        }
+impl Constraint {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn linear_struct(mut self, vars: Vec<i32>, coefs: Vec<f64>) -> Self {
+        self.lvars = vars;
+        self.lcoefs = coefs;
+        self
+    }
+
+    pub fn quadratic_struct(mut self, vars1: Vec<i32>, vars2: Vec<i32>, coefs: Vec<f64>) -> Self {
+        self.qvars1 = vars1;
+        self.qvars2 = vars2;
+        self.qcoefs = coefs;
+        self
     }
 
     pub fn lobnd(mut self, lobnd: f64) -> Self {
@@ -157,5 +174,23 @@ impl LinearConstraint {
 
     pub fn eqbnd(self, eqbnd: f64) -> Self {
         self.lobnd(eqbnd).upbnd(eqbnd)
+    }
+
+    #[cfg(feature = "knitro_rs")]
+    pub fn setup_knitro(&self, kc: &Knitro) -> Result<(), KnitroError> {
+        let c = kc.add_con()?;
+        if !self.lvars.is_empty() {
+            kc.add_con_linear_struct_one(c, &self.lvars, &self.lcoefs)?;
+        }
+        if !self.qvars1.is_empty() {
+            kc.add_con_quadratic_struct_one(c, &self.qvars1, &self.qvars2, &self.qcoefs)?;
+        }
+        if let Some(lobnd) = self.lobnd {
+            kc.set_con_lobnd(c, lobnd)?;
+        }
+        if let Some(upbnd) = self.upbnd {
+            kc.set_con_upbnd(c, upbnd)?;
+        }
+        Ok(())
     }
 }
