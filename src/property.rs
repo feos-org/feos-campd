@@ -15,10 +15,7 @@ use std::sync::Arc;
 pub trait PropertyModel<C> {
     type EquationOfState: Residual + IdealGas;
 
-    fn build_eos(
-        &self,
-        chemical_records: &[C],
-    ) -> Result<Arc<Self::EquationOfState>, ParameterError>;
+    fn build_eos(&self, chemical_records: C) -> Result<Arc<Self::EquationOfState>, ParameterError>;
 }
 
 /// A generic group contribution method
@@ -58,12 +55,14 @@ where
 /// The (homosegmented) group contribution PC-SAFT model.
 pub type PcSaftPropertyModel = GcPropertyModel<JobackRecord, PcSaftRecord>;
 
-impl<T: SegmentCount<Count = f64> + Clone> PropertyModel<T> for PcSaftPropertyModel {
+impl<T: SegmentCount<Count = f64> + Clone, const N: usize> PropertyModel<[T; N]>
+    for PcSaftPropertyModel
+{
     type EquationOfState = EquationOfState<Joback, PcSaft>;
 
     fn build_eos(
         &self,
-        chemical_records: &[T],
+        chemical_records: [T; N],
     ) -> Result<Arc<EquationOfState<Joback, PcSaft>>, ParameterError> {
         let pcsaft = PcSaft::new(Arc::new(PcSaftParameters::from_segments(
             chemical_records.to_vec(),
@@ -102,12 +101,12 @@ impl<T: SegmentCount<Count = f64> + Clone> PropertyModel<T> for PcSaftPropertyMo
 /// The heterosegmented gc-PC-SAFT equation of state.
 pub type GcPcSaftPropertyModel = GcPropertyModel<JobackRecord, GcPcSaftRecord>;
 
-impl PropertyModel<SegmentAndBondCount> for GcPcSaftPropertyModel {
+impl<const N: usize> PropertyModel<[SegmentAndBondCount; N]> for GcPcSaftPropertyModel {
     type EquationOfState = EquationOfState<Joback, GcPcSaft>;
 
     fn build_eos(
         &self,
-        chemical_records: &[SegmentAndBondCount],
+        chemical_records: [SegmentAndBondCount; N],
     ) -> Result<Arc<EquationOfState<Joback, GcPcSaft>>, ParameterError> {
         let gc_pcsaft = GcPcSaft::new(Arc::new(GcPcSaftEosParameters::from_segments(
             chemical_records.to_vec(),

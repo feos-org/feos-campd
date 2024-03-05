@@ -20,24 +20,41 @@ pub use orc::OrganicRankineCycle;
 pub use process_state::{Isobar, ProcessState};
 
 /// Generic process model to be used in an [OptimizationProblem](super::OptimizationProblem).
-pub trait ProcessModel {
+pub trait ProcessModel<E> {
     /// For each continuous process variable return the lower and upper bounds.
     fn variables(&self) -> ProcessVariables;
 
     /// Return the number of equality constraints (h(x)=0)
-    fn equality_constraints(&self) -> usize {
-        0
-    }
+    fn equality_constraints(&self) -> usize;
 
-    /// For each inequality constraint return the lower and upper bound.
-    fn constraints(&self) -> Vec<[Option<f64>; 2]>;
+    /// Return the number of inequality constraints (g(x)>=0)
+    fn inequality_constraints(&self) -> usize;
 
     /// Solve the process model and return the target, and the values of equality and inequality constraints.
-    fn solve<E: Residual + IdealGas>(
+    fn solve(&self, eos: &Arc<E>, x: &[f64]) -> EosResult<(f64, Vec<f64>, Vec<f64>)>;
+
+    fn _solve(&self, eos: &Arc<E>, x: &[f64]) -> EosResult<(f64, Vec<f64>, Vec<f64>)>
+    where
+        E: Residual + IdealGas,
+    {
+        let (x, u) = x.split_at(self.variables().len());
+        match *u {
+            [u] => self.solve_infeasible(eos, x, u),
+            [] => self.solve(eos, x),
+            _ => unreachable!(),
+        }
+    }
+
+    fn solve_infeasible(
         &self,
         eos: &Arc<E>,
         x: &[f64],
-    ) -> EosResult<(f64, Vec<f64>, Vec<f64>)>;
+        u: f64,
+    ) -> EosResult<(f64, Vec<f64>, Vec<f64>)> {
+        let (_, h, mut g) = self.solve(eos, x)?;
+        g.iter_mut().for_each(|g| *g += u);
+        Ok((u, h, g))
+    }
 
     #[cfg(feature = "knitro_rs")]
     fn setup_knitro(
@@ -47,7 +64,12 @@ pub trait ProcessModel {
         mode: OptimizationMode,
     ) -> Result<[Vec<i32>; 3], KnitroError> {
         // declare continuous variables
-        let index_vars = self.variables().setup_knitro(kc, x0, mode)?;
+        let mut index_vars = self.variables().setup_knitro(kc, x0, mode)?;
+
+        // Declare feasibility bound
+        if let OptimizationMode::Feasibility = mode {
+            index_vars.push(kc.add_var()?);
+        }
 
         // add equality constraints
         let index_eq_cons = kc.add_cons(self.equality_constraints())?;
@@ -56,15 +78,9 @@ pub trait ProcessModel {
         }
 
         // add inequality constraints
-        let constraints = self.constraints();
-        let index_ineq_cons = kc.add_cons(constraints.len())?;
-        for (&i, [l, u]) in index_ineq_cons.iter().zip(constraints.into_iter()) {
-            if let Some(l) = l {
-                kc.set_con_lobnd(i, l)?;
-            }
-            if let Some(u) = u {
-                kc.set_con_upbnd(i, u)?;
-            }
+        let index_ineq_cons = kc.add_cons(self.inequality_constraints())?;
+        for &i in &index_ineq_cons {
+            kc.set_con_lobnd(i, 0.0)?;
         }
 
         Ok([index_vars, index_eq_cons, index_ineq_cons])

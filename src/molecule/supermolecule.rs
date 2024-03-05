@@ -1,6 +1,6 @@
 use super::polynomial::{Polynomial, Polynomial2};
 use super::{
-    LinearConstraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
+    Constraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
 };
 use feos::core::parameter::{Identifier, SegmentCount};
 use serde::{Deserialize, Serialize};
@@ -370,8 +370,8 @@ impl SuperMolecule {
     }
 }
 
-impl MolecularRepresentation<1> for SuperMolecule {
-    type ChemicalRecord = SegmentAndBondCount;
+impl MolecularRepresentation for SuperMolecule {
+    type ChemicalRecord = [SegmentAndBondCount; 1];
 
     fn structure_variables(&self) -> StructureVariables {
         let n = self
@@ -391,23 +391,39 @@ impl MolecularRepresentation<1> for SuperMolecule {
         vec![]
     }
 
-    fn constraints(&self, index_vars: &[i32], _: Option<&[i32]>) -> Vec<LinearConstraint> {
+    fn constraints(&self, index_vars: &[i32], _: Option<&[i32]>) -> Vec<Constraint> {
         // maximum size
         let mut constraints = Vec::new();
         let (coefs, size) = self.size_constraint();
-        constraints.push(LinearConstraint::new(index_vars.to_vec(), coefs).upbnd(size));
+        constraints.push(
+            Constraint::new()
+                .linear_struct(index_vars.to_vec(), coefs)
+                .upbnd(size),
+        );
 
         // minimum size
-        constraints.push(LinearConstraint::new(vec![index_vars[0]], vec![1.0]).eqbnd(1.0));
+        constraints.push(
+            Constraint::new()
+                .linear_struct(vec![index_vars[0]], vec![1.0])
+                .eqbnd(1.0),
+        );
 
         // bond constraints
         for bond in self.bond_constraints(index_vars[0]) {
-            constraints.push(LinearConstraint::new(bond.to_vec(), vec![1.0, -1.0]).lobnd(0.0));
+            constraints.push(
+                Constraint::new()
+                    .linear_struct(bond.to_vec(), vec![1.0, -1.0])
+                    .lobnd(0.0),
+            );
         }
 
         // symmetry constraints
         for (index_vars, coefs) in self.symmetry_constraints(index_vars[0]) {
-            constraints.push(LinearConstraint::new(index_vars.to_vec(), coefs.to_vec()).lobnd(0.0));
+            constraints.push(
+                Constraint::new()
+                    .linear_struct(index_vars.to_vec(), coefs.to_vec())
+                    .lobnd(0.0),
+            );
         }
         constraints
     }
@@ -455,9 +471,9 @@ impl MolecularRepresentation<1> for SuperMolecule {
         [SegmentAndBondCount::new(segments, bonds)]
     }
 
-    fn smiles(&self, y: &[usize]) -> [String; 1] {
+    fn smiles(&self, y: &[usize]) -> Vec<String> {
         let y_iter = &mut y.iter().copied();
-        [self
+        vec![self
             .alkyl_tails()
             .into_iter()
             .zip(self.functional_group.smiles.iter())

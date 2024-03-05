@@ -1,15 +1,15 @@
 use super::{
-    LinearConstraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
+    Constraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
 };
 use std::ops::{Add, Mul};
 
 impl<
-        M: MolecularRepresentation<1, ChemicalRecord = C>,
+        M: MolecularRepresentation<ChemicalRecord = [C; 1]>,
         C: Add<Output = C> + Mul<f64, Output = C>,
         const N: usize,
-    > MolecularRepresentation<1> for [M; N]
+    > MolecularRepresentation for [M; N]
 {
-    type ChemicalRecord = C;
+    type ChemicalRecord = [C; 1];
 
     fn structure_variables(&self) -> StructureVariables {
         let mut variables = self
@@ -42,14 +42,18 @@ impl<
         &self,
         index_structure_vars: &[i32],
         index_parameter_vars: Option<&[i32]>,
-    ) -> Vec<LinearConstraint> {
+    ) -> Vec<Constraint> {
         // structure variables
         let (y, c) = index_structure_vars.split_at(index_structure_vars.len() - self.len());
 
         // disjunction
         let mut constraints = Vec::new();
         let coefs = vec![1.0; c.len()];
-        constraints.push(LinearConstraint::new(c.to_vec(), coefs).eqbnd(1.0));
+        constraints.push(
+            Constraint::new()
+                .linear_struct(c.to_vec(), coefs)
+                .eqbnd(1.0),
+        );
 
         for (i, m) in self.iter().enumerate() {
             let n_y = m.structure_variables().len();
@@ -59,22 +63,34 @@ impl<
             // unused variable constraint
             if !unused_vars.is_empty() {
                 let coefs = vec![1.0; unused_vars.len()];
-                constr.push(LinearConstraint::new(unused_vars.to_vec(), coefs).upbnd(0.0));
+                constr.push(
+                    Constraint::new()
+                        .linear_struct(unused_vars.to_vec(), coefs)
+                        .upbnd(0.0),
+                );
             }
 
             // modified constraints with big M formalism
             for constr in constr {
-                let mut vars = constr.vars;
-                let mut coefs = constr.coefs;
+                let mut vars = constr.lvars;
+                let mut coefs = constr.lcoefs;
                 vars.push(c[i]);
                 if let Some(lobnd) = constr.lobnd {
                     let big_m = coefs.iter().map(|c| c.min(0.0)).sum::<f64>() - lobnd;
                     coefs.push(big_m);
-                    constraints.push(LinearConstraint::new(vars, coefs).lobnd(lobnd + big_m));
+                    constraints.push(
+                        Constraint::new()
+                            .linear_struct(vars, coefs)
+                            .lobnd(lobnd + big_m),
+                    );
                 } else if let Some(upbnd) = constr.upbnd {
                     let big_m = coefs.iter().map(|c| c.max(0.0)).sum::<f64>() - upbnd;
                     coefs.push(big_m);
-                    constraints.push(LinearConstraint::new(vars, coefs).upbnd(upbnd + big_m));
+                    constraints.push(
+                        Constraint::new()
+                            .linear_struct(vars, coefs)
+                            .upbnd(upbnd + big_m),
+                    );
                 }
             }
         }
@@ -84,6 +100,7 @@ impl<
 
     fn build(&self, y: &[f64], p: &[f64]) -> [C; 1] {
         let (y, c) = y.split_at(y.len() - N);
+
         [self
             .iter()
             .map(|m| {
@@ -96,7 +113,7 @@ impl<
             .unwrap()]
     }
 
-    fn smiles(&self, y: &[usize]) -> [String; 1] {
+    fn smiles(&self, y: &[usize]) -> Vec<String> {
         let (y, c) = y.split_at(y.len() - N);
         for (&c, m) in c.iter().zip(self.iter()) {
             if c == 1 {

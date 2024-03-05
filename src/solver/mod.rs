@@ -1,26 +1,32 @@
 use crate::process::ProcessModel;
 use crate::*;
-use feos::core::EosResult;
+use feos::core::{EosResult, IdealGas, Residual};
 use knitro_rs::*;
 
 mod outer_approximation;
+pub use outer_approximation::OuterApproximationAlgorithm;
 
 impl<
-        M: MolecularRepresentation<N>,
-        R: PropertyModel<M::ChemicalRecord>,
-        P: ProcessModel,
-        const N: usize,
-    > EvalCallback for OptimizationProblem<M, R, P, N>
+        E: Residual + IdealGas,
+        M: MolecularRepresentation,
+        R: PropertyModel<M::ChemicalRecord, EquationOfState = E>,
+        P: ProcessModel<E>,
+    > EvalCallback for OptimizationProblem<E, M, R, P>
 {
     fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32 {
         match self.evaluate(x) {
             Ok((target, constraints)) => {
+                if constraints.len() != c.len() {
+                    println!("Wrong number of constraints returned from process model!");
+                    return KN_RC_EVAL_ERR;
+                }
                 c.copy_from_slice(&constraints);
                 *obj = target;
                 0
             }
             Err(_) => {
                 // println!("{e}");
+                // panic!();
                 KN_RC_EVAL_ERR
             }
         }
@@ -28,20 +34,20 @@ impl<
 }
 
 impl<
-        M: MolecularRepresentation<N>,
-        R: PropertyModel<M::ChemicalRecord>,
-        P: ProcessModel,
-        const N: usize,
-    > OptimizationProblem<M, R, P, N>
+        E: Residual + IdealGas,
+        M: MolecularRepresentation,
+        R: PropertyModel<M::ChemicalRecord, EquationOfState = E>,
+        P: ProcessModel<E>,
+    > OptimizationProblem<E, M, R, P>
 {
     fn evaluate(&self, vars: &[f64]) -> EosResult<(f64, Vec<f64>)> {
         let n_p = self.molecules.parameter_variables().len();
-        let n_x = self.process.variables().len();
-        let (x, vars) = vars.split_at(n_x);
+        let n_y = self.molecules.structure_variables().len();
+        let (x, vars) = vars.split_at(vars.len() - n_p - n_y);
         let (p, y) = vars.split_at(n_p);
         let cr = self.molecules.build(y, p);
-        let eos = self.property_model.build_eos(&cr)?;
-        let (target, eq_constraints, ineq_constraints) = self.process.solve(&eos, x)?;
+        let eos = self.property_model.build_eos(cr)?;
+        let (target, eq_constraints, ineq_constraints) = self.process._solve(&eos, x)?;
         Ok((target, [eq_constraints, ineq_constraints].concat()))
     }
 
@@ -131,7 +137,12 @@ impl<
         kc.set_cb_grad::<Self>(&mut cb, &vars, &jac_cons, &jac_vars, None)?;
 
         // Solve (MI)NLP
-        kc.solve()?;
+        if let OptimizationMode::Gradients = mode {
+            _ = kc.solve();
+        } else {
+            kc.solve()?;
+        }
+
         let t = kc.get_obj_value()?;
         let y = kc.get_var_primal_values(&index_structure_vars)?;
         let p = kc.get_var_primal_values(&index_parameter_vars)?;
@@ -161,18 +172,46 @@ impl<
 
     pub fn solve_fixed(
         &mut self,
-        x0: Option<&[f64]>,
         y: &[f64],
         options: Option<&str>,
-    ) -> Result<(f64, [Vec<f64>; 3]), KnitroError> {
-        self.solve(
-            x0,
+    ) -> Result<OptimizationResult, KnitroError> {
+        let y_usize: Vec<_> = y.iter().map(|y| y.round() as usize).collect();
+        if let Some(res) = self.solutions.iter().find(|r| r.y == y_usize) {
+            Ok(res.clone())
+        } else {
+            let (target, [x, _, p]) = self.solve(
+                None,
+                Some(y),
+                None,
+                options,
+                OptimizationMode::FixedMolecule,
+                None,
+            )?;
+            let smiles = self.molecules.smiles(&y_usize);
+            let res = OptimizationResult::new(target, smiles, x, y_usize, p);
+            self.solutions.insert(res.clone());
+            Ok(res)
+        }
+    }
+
+    pub fn solve_feasibility(
+        &mut self,
+        y: &[f64],
+        options: Option<&str>,
+    ) -> Result<OptimizationResult, KnitroError> {
+        let (_, [x, y, p]) = self.solve(
+            None,
             Some(y),
             None,
             options,
-            OptimizationMode::FixedMolecule,
+            OptimizationMode::Feasibility,
             None,
-        )
+        )?;
+        let y: Vec<_> = y.into_iter().map(|y| y.round() as usize).collect();
+        let smiles = self.molecules.smiles(&y);
+        let res = OptimizationResult::new(0.0, smiles, x, y, p);
+        self.solutions.insert(res.clone());
+        Ok(res)
     }
 
     pub fn solve_knitro_once(
@@ -191,10 +230,10 @@ impl<
             None,
         )?;
 
-        let y: Vec<_> = y.iter().map(|y| *y as usize).collect();
+        let y: Vec<_> = y.iter().map(|y| y.round() as usize).collect();
         let smiles = self.molecules.smiles(&y);
         // println!("{t} {y:?} {x:?}");
-        Ok(OptimizationResult::new(t, smiles.into(), x, y, p))
+        Ok(OptimizationResult::new(t, smiles, x, y, p))
     }
 
     pub fn solve_knitro(
@@ -218,13 +257,9 @@ impl<
                         } else {
                             "   ".into()
                         };
-                        let smiles = match &solution.smiles[..] {
-                            [smiles] => smiles.clone(),
-                            _ => format!("[{}]", solution.smiles.join(", ")),
-                        };
                         println!(
-                            "{k} {:.7} {:?} {smiles} {:?}",
-                            solution.target, solution.y, solution.x
+                            "{k} {:.7} {:?} {:?} {:?}",
+                            solution.target, solution.y, solution.smiles, solution.x
                         );
                     }
                 }

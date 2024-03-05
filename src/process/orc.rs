@@ -100,13 +100,21 @@ impl OrganicRankineCycle {
     }
 }
 
-impl ProcessModel for OrganicRankineCycle {
+impl<E: Residual + IdealGas> ProcessModel<E> for OrganicRankineCycle {
     fn variables(&self) -> ProcessVariables {
         vec![
-            Variable::continuous(0.0, 2.0),
-            Variable::continuous(self.min_red_pressure.ln(), self.max_red_pressure.ln()),
-            Variable::continuous(self.min_red_pressure.ln(), self.max_red_pressure.ln()),
-            Variable::continuous(0.0, 2.0),
+            Variable::continuous(0.0, 2.0, 1.0),
+            Variable::continuous(
+                self.min_red_pressure.ln(),
+                self.max_red_pressure.ln(),
+                self.min_red_pressure.ln(),
+            ),
+            Variable::continuous(
+                self.min_red_pressure.ln(),
+                self.max_red_pressure.ln(),
+                self.max_red_pressure.ln(),
+            ),
+            Variable::continuous(0.0, 2.0, 0.1),
         ]
         .into()
     }
@@ -115,35 +123,11 @@ impl ProcessModel for OrganicRankineCycle {
         0
     }
 
-    fn constraints(&self) -> Vec<[Option<f64>; 2]> {
-        vec![
-            // Pinch constraints evaporator
-            [Some(0.0), None],
-            [Some(0.0), None],
-            [Some(0.0), None],
-            [Some(0.0), None],
-            // Pinch constraints condenser
-            [Some(0.0), None],
-            [Some(0.0), None],
-            [Some(0.0), None],
-            // Absolute pressure (bar)
-            [
-                Some(self.min_abs_pressure.convert_into(BAR)),
-                Some(self.max_abs_pressure.convert_into(BAR)),
-            ],
-            [
-                Some(self.min_abs_pressure.convert_into(BAR)),
-                Some(self.max_abs_pressure.convert_into(BAR)),
-            ],
-            [Some(1.0), None],
-        ]
+    fn inequality_constraints(&self) -> usize {
+        12
     }
 
-    fn solve<E: Residual + IdealGas>(
-        &self,
-        eos: &Arc<E>,
-        x: &[f64],
-    ) -> EosResult<(f64, Vec<f64>, Vec<f64>)> {
+    fn solve(&self, eos: &Arc<E>, x: &[f64]) -> EosResult<(f64, Vec<f64>, Vec<f64>)> {
         // unpack variables
         let mwf = x[0] * 50.0 * KILOGRAM / SECOND;
         let p_cond_red = x[1].exp();
@@ -192,9 +176,11 @@ impl ProcessModel for OrganicRankineCycle {
         let mut constraints = process.pinch_constraints();
 
         // Absolute pressure constraints
-        constraints.push(p_cond.convert_into(BAR));
-        constraints.push(p_evap.convert_into(BAR));
-        constraints.push(p_evap.convert_into(p_cond));
+        constraints.push((p_cond - self.min_abs_pressure).convert_into(BAR));
+        constraints.push((self.max_abs_pressure - p_cond).convert_into(BAR));
+        constraints.push((p_evap - p_cond).convert_into(BAR));
+        constraints.push((self.max_abs_pressure - p_evap).convert_into(BAR));
+        constraints.push((p_evap - self.min_abs_pressure).convert_into(BAR));
 
         Ok((target, vec![], constraints))
     }

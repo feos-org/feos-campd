@@ -1,14 +1,14 @@
-use super::{LinearConstraint, MolecularRepresentation, ParameterVariables, StructureVariables};
+use super::{Constraint, MolecularRepresentation, ParameterVariables, StructureVariables};
 
 impl<
         C,
-        M1: MolecularRepresentation<1, ChemicalRecord = C>,
-        M2: MolecularRepresentation<1, ChemicalRecord = C>,
-    > MolecularRepresentation<2> for (M1, M2)
+        M1: MolecularRepresentation<ChemicalRecord = [C; 1]>,
+        M2: MolecularRepresentation<ChemicalRecord = [C; 1]>,
+    > MolecularRepresentation for (M1, M2)
 {
-    type ChemicalRecord = C;
+    type ChemicalRecord = [C; 2];
 
-    fn build(&self, y: &[f64], p: &[f64]) -> [Self::ChemicalRecord; 2] {
+    fn build(&self, y: &[f64], p: &[f64]) -> Self::ChemicalRecord {
         let (y1, y2) = y.split_at(self.0.structure_variables().len());
         let (p1, p2) = p.split_at(self.0.parameter_variables().len());
         let [cr1] = self.0.build(y1, p1);
@@ -39,7 +39,7 @@ impl<
         &self,
         index_structure_vars: &[i32],
         index_parameter_vars: Option<&[i32]>,
-    ) -> Vec<LinearConstraint> {
+    ) -> Vec<Constraint> {
         let (index_structure_vars1, index_structure_vars2) =
             index_structure_vars.split_at(self.0.structure_variables().len());
         let (index_parameter_vars1, index_parameter_vars2) =
@@ -60,10 +60,10 @@ impl<
         constraints
     }
 
-    fn smiles(&self, y: &[usize]) -> [String; 2] {
+    fn smiles(&self, y: &[usize]) -> Vec<String> {
         let (y1, y2) = y.split_at(self.0.structure_variables().len());
-        let [smiles1] = self.0.smiles(y1);
-        let [smiles2] = self.1.smiles(y2);
-        [smiles1, smiles2]
+        let smiles1 = self.0.smiles(y1);
+        let smiles2 = self.1.smiles(y2);
+        [smiles1, smiles2].concat()
     }
 }
