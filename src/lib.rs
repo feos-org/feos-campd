@@ -18,7 +18,9 @@ pub use molecule::{
     CoMTCAMD, CoMTCAMDBinary, MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
 };
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
-pub use variables::{Constraint, ProcessVariables, StructureVariables, Variable, Variables};
+pub use variables::{
+    Constraint, ParameterVariables, ProcessVariables, StructureVariables, Variable, Variables,
+};
 
 #[cfg(feature = "knitro_rs")]
 mod solver;
@@ -87,8 +89,14 @@ impl<E, M, R, P> OptimizationProblem<E, M, R, P> {
 pub struct OptimizationResult {
     pub target: f64,
     pub smiles: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub x: Vec<f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub y: Vec<usize>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub p: Vec<f64>,
 }
 
