@@ -1,50 +1,73 @@
-use super::{
-    Constraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
-};
-use std::ops::{Add, Mul};
+use super::MolecularRepresentation;
+use crate::variables::{Constraint, ExplicitVariable, StructureVariables, Variable};
+use std::collections::HashMap;
 
-impl<
-        M: MolecularRepresentation<ChemicalRecord = [C; 1]>,
-        C: Add<Output = C> + Mul<f64, Output = C>,
-        const N: usize,
-    > MolecularRepresentation for [M; N]
-{
-    type ChemicalRecord = [C; 1];
-
+impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M; N] {
     fn structure_variables(&self) -> StructureVariables {
         let mut variables = self
             .iter()
             .map(|s| s.structure_variables())
             .max_by_key(|v| v.len())
             .unwrap();
-        variables.extend([Variable::binary(); N]);
+        let n_y = variables.len();
+        (0..N).for_each(|i| {
+            (0..n_y).for_each(|j| variables.push(Variable::binary(format!("v{i}_{j}"))))
+        });
+        // variables.push(Variable::binary("c0".into()).init(1.0));
+        (0..N).for_each(|i| variables.push(Variable::binary(format!("c{i}"))));
         variables
     }
 
-    fn parameter_variables(&self) -> ParameterVariables {
-        self.iter()
-            .map(|s| s.parameter_variables())
-            .max_by_key(|v| v.len())
-            .unwrap()
-    }
-
-    fn determine_parameters(&self, y: &[f64]) -> Vec<f64> {
-        let (y, c) = y.split_at(y.len() - N);
-        self.iter()
-            .map(|m| m.determine_parameters(y))
-            .zip(c.iter())
-            .map(|(p, &c)| p.iter().map(|p| p * c).collect::<Vec<_>>())
-            .reduce(|a, b| a.iter().zip(b).map(|(a, b)| a + b).collect())
-            .unwrap()
-    }
-
-    fn constraints(
-        &self,
-        index_structure_vars: &[i32],
-        index_parameter_vars: Option<&[i32]>,
-    ) -> Vec<Constraint> {
+    fn feature_variables(&self, index_structure_vars: &[i32]) -> HashMap<String, ExplicitVariable> {
         // structure variables
-        let (y, c) = index_structure_vars.split_at(index_structure_vars.len() - self.len());
+        let n_y = (index_structure_vars.len() - N) / (N + 1);
+        let (y, mut c) = index_structure_vars.split_at(n_y);
+        (0..N).for_each(|_| {
+            let (_, v2) = c.split_at(n_y);
+            c = v2;
+        });
+
+        let mut feature_variables: HashMap<_, Vec<_>> = HashMap::new();
+        for (i, m) in self.iter().enumerate() {
+            m.feature_variables(y)
+                .into_iter()
+                .for_each(|(k, v)| feature_variables.entry(k).or_default().push((i, v)));
+        }
+
+        feature_variables
+            .into_iter()
+            .map(|(k, variables)| {
+                let mut vars = Vec::new();
+                let mut coefs = Vec::new();
+
+                variables.into_iter().for_each(|(i, v)| {
+                    vars.extend(v.lvars.into_iter().map(|y| y + ((i + 1) * n_y) as i32));
+                    coefs.extend(v.lcoefs);
+                    if v.cons != 0.0 {
+                        vars.push(c[i]);
+                        coefs.push(v.cons);
+                    }
+                });
+
+                (
+                    k.clone(),
+                    ExplicitVariable::new(k).linear_struct(vars, coefs),
+                )
+            })
+            .collect()
+    }
+
+    fn constraints(&self, index_structure_vars: &[i32]) -> Vec<Constraint> {
+        // structure variables
+        let n_y = (index_structure_vars.len() - N) / (N + 1);
+        let (y, mut c) = index_structure_vars.split_at(n_y);
+        let v: Vec<_> = (0..N)
+            .map(|_| {
+                let (v1, v2) = c.split_at(n_y);
+                c = v2;
+                v1
+            })
+            .collect();
 
         // disjunction
         let mut constraints = Vec::new();
@@ -55,10 +78,31 @@ impl<
                 .eqbnd(1.0),
         );
 
-        for (i, m) in self.iter().enumerate() {
-            let n_y = m.structure_variables().len();
-            let (used_vars, unused_vars) = y.split_at(n_y);
-            let mut constr = m.constraints(used_vars, index_parameter_vars);
+        // sum(v) = y
+        for (i, y) in y.iter().enumerate() {
+            let mut vars = vec![*y];
+            let mut coefs = vec![1.0];
+            for &v in &v {
+                vars.push(v[i]);
+                coefs.push(-1.0);
+            }
+            constraints.push(Constraint::new().linear_struct(vars, coefs).eqbnd(0.0));
+        }
+
+        // v <= c
+        for (&v, &c) in v.iter().zip(c) {
+            for &v in v {
+                constraints.push(
+                    Constraint::new()
+                        .linear_struct(vec![v, c], vec![1.0, -1.0])
+                        .upbnd(0.0),
+                )
+            }
+        }
+
+        for (i, (m, &c)) in self.iter().zip(c).enumerate() {
+            let (used_vars, unused_vars) = y.split_at(m.structure_variables().len());
+            let mut constr = m.constraints(used_vars);
 
             // unused variable constraint
             if !unused_vars.is_empty() {
@@ -70,47 +114,28 @@ impl<
                 );
             }
 
-            // modified constraints with big M formalism
+            // modified constraints with convex hull
             for constr in constr {
                 let mut vars = constr.lvars;
+                vars.iter_mut().for_each(|y| *y += ((i + 1) * n_y) as i32);
                 let mut coefs = constr.lcoefs;
-                vars.push(c[i]);
                 if let Some(lobnd) = constr.lobnd {
-                    let big_m = coefs.iter().map(|c| c.min(0.0)).sum::<f64>() - lobnd;
-                    coefs.push(big_m);
-                    constraints.push(
-                        Constraint::new()
-                            .linear_struct(vars, coefs)
-                            .lobnd(lobnd + big_m),
-                    );
+                    if lobnd != 0.0 {
+                        vars.push(c);
+                        coefs.push(-lobnd);
+                    }
+                    constraints.push(Constraint::new().linear_struct(vars, coefs).lobnd(0.0));
                 } else if let Some(upbnd) = constr.upbnd {
-                    let big_m = coefs.iter().map(|c| c.max(0.0)).sum::<f64>() - upbnd;
-                    coefs.push(big_m);
-                    constraints.push(
-                        Constraint::new()
-                            .linear_struct(vars, coefs)
-                            .upbnd(upbnd + big_m),
-                    );
+                    if upbnd != 0.0 {
+                        vars.push(c);
+                        coefs.push(-upbnd);
+                    }
+                    constraints.push(Constraint::new().linear_struct(vars, coefs).upbnd(0.0));
                 }
             }
         }
 
         constraints
-    }
-
-    fn build(&self, y: &[f64], p: &[f64]) -> [C; 1] {
-        let (y, c) = y.split_at(y.len() - N);
-
-        [self
-            .iter()
-            .map(|m| {
-                let [cr] = m.build(y, p);
-                cr
-            })
-            .zip(c.iter())
-            .map(|(cr, &c)| cr * c)
-            .reduce(|a, b| a + b)
-            .unwrap()]
     }
 
     fn smiles(&self, y: &[usize]) -> Vec<String> {

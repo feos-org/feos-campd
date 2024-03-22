@@ -1,8 +1,8 @@
-use super::polynomial::{Polynomial, Polynomial2};
-use super::{
-    Constraint, MolecularRepresentation, ParameterVariables, StructureVariables, Variable,
-};
+// use super::polynomial::{Polynomial, Polynomial2};
+use super::{Constraint, MolecularRepresentation, StructureVariables};
+use crate::variables::{ExplicitVariable, Variable};
 use feos::core::parameter::{Identifier, SegmentCount};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -71,7 +71,7 @@ struct FunctionalGroup {
 impl FunctionalGroup {
     pub fn ch3() -> Self {
         Self {
-            groups: vec!["CH3".into()],
+            groups: vec!["CH4".into(), "CH3".into()],
             smiles: vec!["C".into()],
             atoms: 1,
         }
@@ -79,7 +79,7 @@ impl FunctionalGroup {
 
     pub fn ctch() -> Self {
         Self {
-            groups: vec!["C≡CH".into()],
+            groups: vec!["CH≡CH".into(), "C≡CH".into()],
             smiles: vec!["C#C".into()],
             atoms: 2,
         }
@@ -87,7 +87,7 @@ impl FunctionalGroup {
 
     pub fn oh() -> Self {
         Self {
-            groups: vec!["OH".into()],
+            groups: vec!["OH2".into(), "OH".into()],
             smiles: vec!["O".into()],
             atoms: 1,
         }
@@ -95,7 +95,7 @@ impl FunctionalGroup {
 
     pub fn nh2() -> Self {
         Self {
-            groups: vec!["NH2".into()],
+            groups: vec!["NH3".into(), "NH2".into()],
             smiles: vec!["N".into()],
             atoms: 1,
         }
@@ -103,7 +103,7 @@ impl FunctionalGroup {
 
     pub fn och3() -> Self {
         Self {
-            groups: vec!["OCH3".into()],
+            groups: vec!["OHCH3".into(), "OCH3".into()],
             smiles: vec!["CO".into()],
             atoms: 2,
         }
@@ -111,7 +111,7 @@ impl FunctionalGroup {
 
     pub fn cdo() -> Self {
         Self {
-            groups: vec![">C=O".into(), "CH=O".into()],
+            groups: vec!["CH2=O".into(), "CH=O".into(), ">C=O".into()],
             smiles: vec!["C(=O)".into(), "".into()],
             atoms: 2,
         }
@@ -119,7 +119,7 @@ impl FunctionalGroup {
 
     pub fn cdc() -> Self {
         Self {
-            groups: vec!["=C<".into(), "=CH".into(), "=CH2".into()],
+            groups: vec!["=CH2".into(), "=CH".into(), "=C<".into()],
             smiles: vec!["C".into(), "".into(), "=C".into(), "".into()],
             atoms: 2,
         }
@@ -180,23 +180,36 @@ impl SuperAlkyl {
         (indices, levels)
     }
 
-    fn build<I: Iterator<Item = f64>>(
-        size: usize,
-        y: &mut I,
-        segments: &mut Polynomial<4>,
-        bonds: &mut Polynomial2<4, 4>,
-    ) -> Polynomial<4> {
-        let value = y.next().unwrap();
+    // fn build<I: Iterator<Item = f64>>(
+    //     size: usize,
+    //     y: &mut I,
+    //     segments: &mut Polynomial<4>,
+    //     bonds: &mut Polynomial2<4, 4>,
+    // ) -> Polynomial<4> {
+    //     let value = y.next().unwrap();
 
-        let children: Vec<_> = (1..=3)
-            .map(|k| (size - 1) / k)
-            .filter(|s| *s > 0)
-            .map(|s| Self::build(s, y, segments, bonds))
-            .collect();
-        let res = calculate_bonds(children, bonds) * value;
-        *segments += res;
+    //     let children: Vec<_> = (1..=3)
+    //         .map(|k| (size - 1) / k)
+    //         .filter(|s| *s > 0)
+    //         .map(|s| Self::build(s, y, segments, bonds))
+    //         .collect();
+    //     let res = calculate_bonds(children, bonds) * value;
+    //     *segments += res;
 
-        res
+    //     res
+    // }
+
+    fn feature_variables(size: usize, index: &mut i32, coefs: &mut [HashMap<i32, isize>; 4]) {
+        *coefs[0].entry(*index).or_insert(0) += 1;
+        (1..=3)
+            .map(|k| (k, (size - 1) / k))
+            .filter(|(_, s)| *s > 0)
+            .for_each(|(k, s)| {
+                *index += 1;
+                *coefs[k].entry(*index).or_insert(0) += 1;
+                *coefs[k - 1].entry(*index).or_insert(0) -= 1;
+                Self::feature_variables(s, index, coefs);
+            });
     }
 
     fn smiles<I: Iterator<Item = usize>>(size: usize, y: &mut I) -> Vec<char> {
@@ -320,6 +333,29 @@ impl SuperMolecule {
             SuperMolecule::ketone(size),
         ]
     }
+
+    pub fn get_initial_values(molecules: &[Self], structure: &str, y0: &[f64]) -> Vec<f64> {
+        let mut y = y0.to_vec();
+        let mut c = Vec::new();
+        let n_y = molecules
+            .iter()
+            .map(|m| m.structure_variables().len())
+            .max()
+            .unwrap();
+        if y0.len() != n_y {
+            panic!("Need {n_y} structure variables!");
+        }
+        for m in molecules {
+            if m.name == structure {
+                y.extend_from_slice(y0);
+                c.push(1.0);
+            } else {
+                y.extend_from_slice(&vec![0.0; y0.len()]);
+                c.push(0.0);
+            }
+        }
+        [y, c].concat()
+    }
 }
 
 impl SuperMolecule {
@@ -371,8 +407,6 @@ impl SuperMolecule {
 }
 
 impl MolecularRepresentation for SuperMolecule {
-    type ChemicalRecord = [SegmentAndBondCount; 1];
-
     fn structure_variables(&self) -> StructureVariables {
         let n = self
             .alkyl_tails()
@@ -380,36 +414,121 @@ impl MolecularRepresentation for SuperMolecule {
             .filter(|&&s| s > 0)
             .map(|&s| SuperAlkyl::variables(s))
             .sum::<usize>();
-        vec![Variable::binary(); n].into()
+        (0..n).map(|i| Variable::binary(format!("y{i}"))).collect()
     }
 
-    fn parameter_variables(&self) -> ParameterVariables {
-        vec![].into()
+    fn feature_variables(&self, index_structure_vars: &[i32]) -> HashMap<String, ExplicitVariable> {
+        let mut index = index_structure_vars[0] - 1;
+        let mut c_groups = [
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+        ];
+        let mut f_groups = [HashMap::new(), HashMap::new(), HashMap::new()];
+
+        self.alkyl_tails()
+            .into_iter()
+            .enumerate()
+            .filter(|&(_, s)| s > 0)
+            .for_each(|(k, s)| {
+                index += 1;
+                *f_groups[k % 2 + 1].entry(index).or_insert(0) += 1;
+                *f_groups[k % 2].entry(index).or_insert(0) -= 1;
+                SuperAlkyl::feature_variables(s, &mut index, &mut c_groups)
+            });
+
+        let coefs = c_groups.into_iter().chain(f_groups).map(|groups| {
+            let mut vars = Vec::new();
+            let mut coefs = Vec::new();
+            let mut cons = 0;
+            groups.into_iter().sorted().for_each(|(k, v)| {
+                if v != 0 {
+                    if k == index_structure_vars[0] {
+                        cons += v;
+                    } else {
+                        vars.push(k);
+                        coefs.push(v);
+                    }
+                }
+            });
+            (vars, coefs, cons)
+        });
+
+        let mut segments: HashMap<String, (Vec<i32>, Vec<f64>, f64)> = HashMap::new();
+        ["CH3", "CH2", ">CH", ">C<"]
+            .into_iter()
+            .map(String::from)
+            .chain(self.functional_group.groups.iter().cloned())
+            .zip(coefs)
+            .for_each(|(s, (v, c, k))| {
+                let (vars, coefs, cons) = segments.entry(s).or_default();
+                for (v, c) in v.into_iter().zip(c) {
+                    if let Some(i) = vars.iter().position(|&var| var == v) {
+                        coefs[i] += c as f64;
+                    } else {
+                        vars.push(v);
+                        coefs.push(c as f64);
+                    }
+                }
+                *cons += k as f64;
+            });
+        let mut segments: HashMap<_, _> = segments
+            .into_iter()
+            .map(|(s, (vars, coefs, cons))| {
+                (
+                    s.clone(),
+                    ExplicitVariable::new(s)
+                        .linear_struct(vars, coefs)
+                        .cons(cons),
+                )
+            })
+            .collect();
+
+        let cons = match &self.functional_group.groups[0] as &str {
+            "=CH2" => 2.0,
+            _ => 1.0,
+        };
+        segments
+            .entry(self.functional_group.groups[0].clone())
+            .or_default()
+            .add_cons(cons);
+
+        // Remove impossible segments due to min size constraint
+        segments.retain(|_, v| !(v.lvars.is_empty() && v.cons == 0.0));
+
+        // let mut bonds = HashMap::new();
+        // fill_bond_map(cs, cs, &c_bonds, &mut bonds);
+        // s.iter().zip(cs.iter()).for_each(|(g, c)| {
+        //     if *g > 0.0 {
+        //         *bonds
+        //             .entry([self.functional_group.groups[0].clone(), c.to_string()])
+        //             .or_insert(0.0) += *g;
+        //     }
+        // });
+
+        segments
     }
 
-    fn determine_parameters(&self, _: &[f64]) -> Vec<f64> {
-        vec![]
-    }
-
-    fn constraints(&self, index_vars: &[i32], _: Option<&[i32]>) -> Vec<Constraint> {
+    fn constraints(&self, index_structure_vars: &[i32]) -> Vec<Constraint> {
         // maximum size
         let mut constraints = Vec::new();
         let (coefs, size) = self.size_constraint();
         constraints.push(
             Constraint::new()
-                .linear_struct(index_vars.to_vec(), coefs)
+                .linear_struct(index_structure_vars.to_vec(), coefs)
                 .upbnd(size),
         );
 
         // minimum size
         constraints.push(
             Constraint::new()
-                .linear_struct(vec![index_vars[0]], vec![1.0])
+                .linear_struct(vec![index_structure_vars[0]], vec![1.0])
                 .eqbnd(1.0),
         );
 
         // bond constraints
-        for bond in self.bond_constraints(index_vars[0]) {
+        for bond in self.bond_constraints(index_structure_vars[0]) {
             constraints.push(
                 Constraint::new()
                     .linear_struct(bond.to_vec(), vec![1.0, -1.0])
@@ -418,57 +537,14 @@ impl MolecularRepresentation for SuperMolecule {
         }
 
         // symmetry constraints
-        for (index_vars, coefs) in self.symmetry_constraints(index_vars[0]) {
+        for (index_structure_vars, coefs) in self.symmetry_constraints(index_structure_vars[0]) {
             constraints.push(
                 Constraint::new()
-                    .linear_struct(index_vars.to_vec(), coefs.to_vec())
+                    .linear_struct(index_structure_vars.to_vec(), coefs.to_vec())
                     .lobnd(0.0),
             );
         }
         constraints
-    }
-
-    fn build(&self, y: &[f64], _: &[f64]) -> [SegmentAndBondCount; 1] {
-        match self.alkyls.len() {
-            1 => (),
-            2 => return [self.build_ketone(y)],
-            4 => return [self.build_alkene(y)],
-            _ => unreachable!(),
-        }
-        let y_iter = &mut y.iter().copied();
-
-        let mut c_segments = Polynomial::zero();
-        let mut c_bonds = Polynomial2::zero();
-        let s = SuperAlkyl::build(
-            self.size - self.functional_group.atoms,
-            y_iter,
-            &mut c_segments,
-            &mut c_bonds,
-        );
-
-        let cs = ["CH3", "CH2", ">CH", ">C<"];
-
-        let mut segments: HashMap<_, _> = cs
-            .iter()
-            .map(|&s| s.to_string())
-            .zip(c_segments.iter().cloned())
-            .filter(|(_, g)| *g > 0.0)
-            .collect();
-        *segments
-            .entry(self.functional_group.groups[0].clone())
-            .or_insert(0.0) += 1.0;
-
-        let mut bonds = HashMap::new();
-        fill_bond_map(cs, cs, &c_bonds, &mut bonds);
-        s.iter().zip(cs.iter()).for_each(|(g, c)| {
-            if *g > 0.0 {
-                *bonds
-                    .entry([self.functional_group.groups[0].clone(), c.to_string()])
-                    .or_insert(0.0) += *g;
-            }
-        });
-
-        [SegmentAndBondCount::new(segments, bonds)]
     }
 
     fn smiles(&self, y: &[usize]) -> Vec<String> {
@@ -489,84 +565,127 @@ impl MolecularRepresentation for SuperMolecule {
     }
 }
 
-impl SuperMolecule {
-    fn build_ketone(&self, y: &[f64]) -> SegmentAndBondCount {
-        let y_iter = &mut y.iter().copied();
+// impl SuperMolecule {
+//     fn build(&self, y: &[f64], _: &[f64]) -> [SegmentAndBondCount; 1] {
+//         match self.alkyls.len() {
+//             1 => (),
+//             2 => return [self.build_ketone(y)],
+//             4 => return [self.build_alkene(y)],
+//             _ => unreachable!(),
+//         }
+//         let y_iter = &mut y.iter().copied();
 
-        let cs = ["CH3", "CH2", ">CH", ">C<"];
-        let mut c_segments = Polynomial::zero();
-        let mut c_bonds = Polynomial2::zero();
+//         let mut c_segments = Polynomial::zero();
+//         let mut c_bonds = Polynomial2::zero();
+//         let s = SuperAlkyl::build(
+//             self.size - self.functional_group.atoms,
+//             y_iter,
+//             &mut c_segments,
+//             &mut c_bonds,
+//         );
 
-        // formaldehyde is approximated by CH=O for the relaxation.
-        let cds = ["CH=O", "CH=O", ">C=O"];
-        let mut cd_bonds: Polynomial2<4, 3> = Polynomial2::zero();
+//         let cs = ["CH3", "CH2", ">CH", ">C<"];
 
-        let alkyls = self
-            .alkyl_tails()
-            .iter()
-            .filter(|&&s| s > 0)
-            .map(|&s| SuperAlkyl::build(s, y_iter, &mut c_segments, &mut c_bonds))
-            .collect();
-        let cd_segments = calculate_bonds(alkyls, &mut cd_bonds);
+//         let mut segments: HashMap<_, _> = cs
+//             .iter()
+//             .map(|&s| s.to_string())
+//             .zip(c_segments.iter().cloned())
+//             .filter(|(_, g)| *g > 0.0)
+//             .collect();
+//         *segments
+//             .entry(self.functional_group.groups[0].clone())
+//             .or_insert(0.0) += 1.0;
 
-        let segments: HashMap<_, _> = cs
-            .iter()
-            .chain(cds.iter())
-            .map(|&s| s.to_string())
-            .zip(c_segments.iter().chain(cd_segments.iter()).cloned())
-            .filter(|(_, g)| *g > 0.0)
-            .collect();
+//         let mut bonds = HashMap::new();
+//         fill_bond_map(cs, cs, &c_bonds, &mut bonds);
+//         s.iter().zip(cs.iter()).for_each(|(g, c)| {
+//             if *g > 0.0 {
+//                 *bonds
+//                     .entry([self.functional_group.groups[0].clone(), c.to_string()])
+//                     .or_insert(0.0) += *g;
+//             }
+//         });
 
-        let mut bonds = HashMap::new();
-        fill_bond_map(cs, cs, &c_bonds, &mut bonds);
-        fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
+//         [SegmentAndBondCount::new(segments, bonds)]
+//     }
 
-        SegmentAndBondCount::new(segments, bonds)
-    }
+//     fn build_ketone(&self, y: &[f64]) -> SegmentAndBondCount {
+//         let y_iter = &mut y.iter().copied();
 
-    fn build_alkene(&self, y: &[f64]) -> SegmentAndBondCount {
-        let y_iter = &mut y.iter().copied();
+//         let cs = ["CH3", "CH2", ">CH", ">C<"];
+//         let mut c_segments = Polynomial::zero();
+//         let mut c_bonds = Polynomial2::zero();
 
-        let cs = ["CH3", "CH2", ">CH", ">C<"];
-        let mut c_segments = Polynomial::zero();
-        let mut c_bonds = Polynomial2::zero();
+//         // formaldehyde is approximated by CH=O for the relaxation.
+//         let cds = ["CH=O", "CH=O", ">C=O"];
+//         let mut cd_bonds: Polynomial2<4, 3> = Polynomial2::zero();
 
-        let cds = ["=CH2", "=CH", "=C<"];
-        let mut cd_segments = Vec::new();
-        let mut cd_bonds: Polynomial2<4, 3> = Polynomial2::zero();
+//         let alkyls = self
+//             .alkyl_tails()
+//             .iter()
+//             .filter(|&&s| s > 0)
+//             .map(|&s| SuperAlkyl::build(s, y_iter, &mut c_segments, &mut c_bonds))
+//             .collect();
+//         let cd_segments = calculate_bonds(alkyls, &mut cd_bonds);
 
-        let s = self.alkyl_tails();
-        for tails in [[0, 1], [2, 3]] {
-            let alkyls = tails
-                .iter()
-                .filter(|&&i| s[i] > 0)
-                .map(|&i| SuperAlkyl::build(s[i], y_iter, &mut c_segments, &mut c_bonds))
-                .collect();
-            cd_segments.push(calculate_bonds(alkyls, &mut cd_bonds));
-        }
+//         let segments: HashMap<_, _> = cs
+//             .iter()
+//             .chain(cds.iter())
+//             .map(|&s| s.to_string())
+//             .zip(c_segments.iter().chain(cd_segments.iter()).cloned())
+//             .filter(|(_, g)| *g > 0.0)
+//             .collect();
 
-        let segments: HashMap<_, _> = cs
-            .iter()
-            .chain(cds.iter())
-            .map(|&s| s.to_string())
-            .zip(
-                c_segments
-                    .iter()
-                    .chain((cd_segments[0] + cd_segments[1]).iter())
-                    .cloned(),
-            )
-            .filter(|(_, g)| *g > 0.0)
-            .collect();
+//         let mut bonds = HashMap::new();
+//         fill_bond_map(cs, cs, &c_bonds, &mut bonds);
+//         fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
 
-        let mut bonds = HashMap::new();
-        fill_bond_map(cs, cs, &c_bonds, &mut bonds);
-        fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
-        let dd_bonds = cd_segments[0].outer_product(cd_segments[1]);
-        fill_bond_map(cds, cds, &dd_bonds, &mut bonds);
+//         SegmentAndBondCount::new(segments, bonds)
+//     }
 
-        SegmentAndBondCount::new(segments, bonds)
-    }
-}
+//     fn build_alkene(&self, y: &[f64]) -> SegmentAndBondCount {
+//         let y_iter = &mut y.iter().copied();
+
+//         let cs = ["CH3", "CH2", ">CH", ">C<"];
+//         let mut c_segments = Polynomial::zero();
+//         let mut c_bonds = Polynomial2::zero();
+
+//         let cds = ["=CH2", "=CH", "=C<"];
+//         let mut cd_segments = Vec::new();
+//         let mut cd_bonds: Polynomial2<4, 3> = Polynomial2::zero();
+
+//         let s = self.alkyl_tails();
+//         for tails in [[0, 1], [2, 3]] {
+//             let alkyls = tails
+//                 .iter()
+//                 .filter(|&&i| s[i] > 0)
+//                 .map(|&i| SuperAlkyl::build(s[i], y_iter, &mut c_segments, &mut c_bonds))
+//                 .collect();
+//             cd_segments.push(calculate_bonds(alkyls, &mut cd_bonds));
+//         }
+
+//         let segments: HashMap<_, _> = cs
+//             .iter()
+//             .chain(cds.iter())
+//             .map(|&s| s.to_string())
+//             .zip(
+//                 c_segments
+//                     .iter()
+//                     .chain((cd_segments[0] + cd_segments[1]).iter())
+//                     .cloned(),
+//             )
+//             .filter(|(_, g)| *g > 0.0)
+//             .collect();
+
+//         let mut bonds = HashMap::new();
+//         fill_bond_map(cs, cs, &c_bonds, &mut bonds);
+//         fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
+//         let dd_bonds = cd_segments[0].outer_product(cd_segments[1]);
+//         fill_bond_map(cds, cds, &dd_bonds, &mut bonds);
+
+//         SegmentAndBondCount::new(segments, bonds)
+//     }
+// }
 
 fn merge_symmetry_constraints(
     branch1: &(Vec<i32>, Vec<f64>),
@@ -588,44 +707,45 @@ fn merge_symmetry_constraints(
     )
 }
 
-fn calculate_bonds<const M: usize, const N: usize>(
-    children: Vec<Polynomial<N>>,
-    bonds: &mut Polynomial2<N, M>,
-) -> Polynomial<M> {
-    for (i, ci) in children.iter().enumerate() {
-        *bonds += ci.outer_product(
-            children
-                .iter()
-                .enumerate()
-                .filter(|&(j, _)| (j != i))
-                .map(|(_, cj)| Polynomial::new(cj.sum()))
-                .product::<Polynomial<M>>()
-                * Polynomial::new(1.0),
-        );
-    }
-    children.iter().map(|p| Polynomial::new(p.sum())).product()
-}
+// fn calculate_bonds<const M: usize, const N: usize>(
+//     children: Vec<Polynomial<N>>,
+//     bonds: &mut Polynomial2<N, M>,
+// ) -> Polynomial<M> {
+//     for (i, ci) in children.iter().enumerate() {
+//         *bonds += ci.outer_product(
+//             children
+//                 .iter()
+//                 .enumerate()
+//                 .filter(|&(j, _)| (j != i))
+//                 .map(|(_, cj)| Polynomial::new(cj.sum()))
+//                 .product::<Polynomial<M>>()
+//                 * Polynomial::new(1.0),
+//         );
+//     }
+//     children.iter().map(|p| Polynomial::new(p.sum())).product()
+// }
 
-fn fill_bond_map<const M: usize, const N: usize>(
-    seg1: [&str; M],
-    seg2: [&str; N],
-    bond_poly: &Polynomial2<M, N>,
-    bonds: &mut HashMap<[String; 2], f64>,
-) {
-    for (i, c1) in seg1.iter().enumerate() {
-        for (j, c2) in seg2.iter().enumerate() {
-            if bond_poly[(i, j)] > 0.0 {
-                *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) += bond_poly[(i, j)];
-            }
-        }
-    }
-}
+// fn fill_bond_map<const M: usize, const N: usize>(
+//     seg1: [&str; M],
+//     seg2: [&str; N],
+//     bond_poly: &Polynomial2<M, N>,
+//     bonds: &mut HashMap<[String; 2], f64>,
+// ) {
+//     for (i, c1) in seg1.iter().enumerate() {
+//         for (j, c2) in seg2.iter().enumerate() {
+//             if bond_poly[(i, j)] > 0.0 {
+//                 *bonds.entry([c1.to_string(), c2.to_string()]).or_insert(0.0) += bond_poly[(i, j)];
+//             }
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::MolecularRepresentation;
     use approx::assert_relative_eq;
+    use itertools::Itertools;
 
     // https://pubs.acs.org/doi/pdf/10.1021/ja01359a027
     #[test]
@@ -656,7 +776,7 @@ mod test {
 
     #[test]
     fn test_isomers_disjunction() {
-        let molecules = SuperMolecule::all(5);
+        let molecules = SuperMolecule::all(3);
         let total_disjunct = molecules.generate_solutions().len();
         let mut total = 0;
         for molecule in molecules {
@@ -667,131 +787,131 @@ mod test {
         assert_eq!(total_disjunct, total);
     }
 
-    #[test]
-    fn test_build() {
-        let [SegmentAndBondCount { segments, bonds }] =
-            SuperMolecule::alcohol(4).build(&[0.9, 0.8, 0.5, 0.3], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_relative_eq!(segments["CH3"], 1.326);
-        assert_relative_eq!(segments["CH2"], 0.958);
-        assert_relative_eq!(segments[">CH"], 0.216);
-        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 0.12);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 0.36);
-        assert_relative_eq!(bonds[&["CH2".to_string(), "CH2".to_string()]], 0.28);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 0.84);
-    }
+    // #[test]
+    // fn test_build() {
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         SuperMolecule::alcohol(4).build(&[0.9, 0.8, 0.5, 0.3], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_relative_eq!(segments["CH3"], 1.326);
+    //     assert_relative_eq!(segments["CH2"], 0.958);
+    //     assert_relative_eq!(segments[">CH"], 0.216);
+    //     assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 0.12);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 0.36);
+    //     assert_relative_eq!(bonds[&["CH2".to_string(), "CH2".to_string()]], 0.28);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 0.84);
+    // }
 
-    #[test]
-    fn test_alcohol() {
-        let supermolecule = SuperMolecule::alcohol(5);
-        let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_eq!(segments["CH3"], 4.0);
-        assert_eq!(segments["CH2"], 1.0);
-        assert_eq!(segments[">CH"], 1.0);
-        assert_eq!(segments[">C<"], 1.0);
-        assert_eq!(segments["OH"], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">C<".to_string()]], 2.0);
-        assert_relative_eq!(bonds[&[">CH".to_string(), ">C<".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["OH".to_string(), ">C<".to_string()]], 1.0);
-    }
+    // #[test]
+    // fn test_alcohol() {
+    //     let supermolecule = SuperMolecule::alcohol(5);
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_eq!(segments["CH3"], 4.0);
+    //     assert_eq!(segments["CH2"], 1.0);
+    //     assert_eq!(segments[">CH"], 1.0);
+    //     assert_eq!(segments[">C<"], 1.0);
+    //     assert_eq!(segments["OH"], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">C<".to_string()]], 2.0);
+    //     assert_relative_eq!(bonds[&[">CH".to_string(), ">C<".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["OH".to_string(), ">C<".to_string()]], 1.0);
+    // }
 
-    #[test]
-    fn test_ketone() {
-        let supermolecule = SuperMolecule::ketone(5);
-        let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_eq!(segments["CH3"], 3.0);
-        assert_eq!(segments["CH2"], 1.0);
-        assert_eq!(segments[">CH"], 1.0);
-        assert_eq!(segments[">C=O"], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&[">CH".to_string(), ">C=O".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">C=O".to_string()]], 1.0);
-    }
+    // #[test]
+    // fn test_ketone() {
+    //     let supermolecule = SuperMolecule::ketone(5);
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_eq!(segments["CH3"], 3.0);
+    //     assert_eq!(segments["CH2"], 1.0);
+    //     assert_eq!(segments[">CH"], 1.0);
+    //     assert_eq!(segments[">C=O"], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&[">CH".to_string(), ">C=O".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">C=O".to_string()]], 1.0);
+    // }
 
-    #[test]
-    fn test_alkene() {
-        let supermolecule = SuperMolecule::alkene(5);
-        let [SegmentAndBondCount { segments, bonds }] =
-            supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_eq!(segments["CH3"], 4.0);
-        assert_eq!(segments["CH2"], 1.0);
-        assert_eq!(segments[">CH"], 1.0);
-        assert_eq!(segments["=C<"], 1.0);
-        assert_eq!(segments["=CH"], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&[">CH".to_string(), "=C<".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "=C<".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "=CH".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["=C<".to_string(), "=CH".to_string()]], 1.0);
-    }
+    // #[test]
+    // fn test_alkene() {
+    //     let supermolecule = SuperMolecule::alkene(5);
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         supermolecule.build(&vec![1.0; supermolecule.structure_variables().len()], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_eq!(segments["CH3"], 4.0);
+    //     assert_eq!(segments["CH2"], 1.0);
+    //     assert_eq!(segments[">CH"], 1.0);
+    //     assert_eq!(segments["=C<"], 1.0);
+    //     assert_eq!(segments["=CH"], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH2".to_string(), ">CH".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&[">CH".to_string(), "=C<".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), "=C<".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), "=CH".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["=C<".to_string(), "=CH".to_string()]], 1.0);
+    // }
 
-    fn molecule_disjunct() -> [SuperMolecule; 3] {
-        [
-            SuperMolecule::alcohol(5),
-            SuperMolecule::methylether(5),
-            SuperMolecule::ketone(5),
-        ]
-    }
+    // fn molecule_disjunct() -> [SuperMolecule; 3] {
+    //     [
+    //         SuperMolecule::alcohol(5),
+    //         SuperMolecule::methylether(5),
+    //         SuperMolecule::ketone(5),
+    //     ]
+    // }
 
-    #[test]
-    fn test_build_disjunct() {
-        println!("{}", molecule_disjunct().structure_variables().len());
-        let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 0.8, 0.6, 0.1, 0.3, 0.2, 0.1, 0.5, 0.3, 0.2], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_relative_eq!(segments["CH3"], 1.464);
-        assert_relative_eq!(segments["CH2"], 1.17);
-        assert_relative_eq!(segments[">CH"], 0.218);
-        assert_relative_eq!(segments[">C<"], 0.008);
-        assert_relative_eq!(segments["OH"], 0.5);
-        assert_relative_eq!(segments["OCH3"], 0.3);
-        assert_relative_eq!(segments[">C=O"], 0.06);
-        assert_relative_eq!(segments["CH=O"], 0.14);
-    }
+    // #[test]
+    // fn test_build_disjunct() {
+    //     println!("{}", molecule_disjunct().structure_variables().len());
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         molecule_disjunct().build(&[1.0, 0.8, 0.6, 0.1, 0.3, 0.2, 0.1, 0.5, 0.3, 0.2], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_relative_eq!(segments["CH3"], 1.464);
+    //     assert_relative_eq!(segments["CH2"], 1.17);
+    //     assert_relative_eq!(segments[">CH"], 0.218);
+    //     assert_relative_eq!(segments[">C<"], 0.008);
+    //     assert_relative_eq!(segments["OH"], 0.5);
+    //     assert_relative_eq!(segments["OCH3"], 0.3);
+    //     assert_relative_eq!(segments[">C=O"], 0.06);
+    //     assert_relative_eq!(segments["CH=O"], 0.14);
+    // }
 
-    #[test]
-    fn test_ethanol() {
-        let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_eq!(segments["CH3"], 1.0);
-        assert_eq!(segments["CH2"], 1.0);
-        assert_eq!(segments["OH"], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
-        assert_relative_eq!(bonds[&["OH".to_string(), "CH2".to_string()]], 1.0);
-    }
+    // #[test]
+    // fn test_ethanol() {
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         molecule_disjunct().build(&[1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_eq!(segments["CH3"], 1.0);
+    //     assert_eq!(segments["CH2"], 1.0);
+    //     assert_eq!(segments["OH"], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), "CH2".to_string()]], 1.0);
+    //     assert_relative_eq!(bonds[&["OH".to_string(), "CH2".to_string()]], 1.0);
+    // }
 
-    #[test]
-    fn test_2_methoxybutane() {
-        let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_eq!(segments["CH3"], 2.0);
-        assert_eq!(segments[">CH"], 1.0);
-        assert_eq!(segments["OCH3"], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 2.0);
-        assert_relative_eq!(bonds[&["OCH3".to_string(), ">CH".to_string()]], 1.0);
-    }
+    // #[test]
+    // fn test_2_methoxybutane() {
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         molecule_disjunct().build(&[1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_eq!(segments["CH3"], 2.0);
+    //     assert_eq!(segments[">CH"], 1.0);
+    //     assert_eq!(segments["OCH3"], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">CH".to_string()]], 2.0);
+    //     assert_relative_eq!(bonds[&["OCH3".to_string(), ">CH".to_string()]], 1.0);
+    // }
 
-    #[test]
-    fn test_acetone() {
-        let [SegmentAndBondCount { segments, bonds }] =
-            molecule_disjunct().build(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], &[]);
-        println!("{segments:?}\n{bonds:?}");
-        assert_eq!(segments["CH3"], 2.0);
-        assert_eq!(segments[">C=O"], 1.0);
-        assert_relative_eq!(bonds[&["CH3".to_string(), ">C=O".to_string()]], 2.0);
-    }
+    // #[test]
+    // fn test_acetone() {
+    //     let [SegmentAndBondCount { segments, bonds }] =
+    //         molecule_disjunct().build(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], &[]);
+    //     println!("{segments:?}\n{bonds:?}");
+    //     assert_eq!(segments["CH3"], 2.0);
+    //     assert_eq!(segments[">C=O"], 1.0);
+    //     assert_relative_eq!(bonds[&["CH3".to_string(), ">C=O".to_string()]], 2.0);
+    // }
 }

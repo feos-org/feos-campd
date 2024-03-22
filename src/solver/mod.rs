@@ -4,14 +4,33 @@ use feos::core::{EosResult, IdealGas, Residual};
 use knitro_rs::*;
 
 mod outer_approximation;
+mod process_optimization;
 pub use outer_approximation::OuterApproximationAlgorithm;
 
-impl<
-        E: Residual + IdealGas,
-        M: MolecularRepresentation,
-        R: PropertyModel<M::ChemicalRecord, EquationOfState = E>,
-        P: ProcessModel<E>,
-    > EvalCallback for OptimizationProblem<E, M, R, P>
+struct OptimizationProblemCallback<'a, R, P> {
+    property_model: &'a R,
+    process: &'a P,
+    index_process_vars: &'a [i32],
+    index_parameter_vars: &'a [i32],
+}
+
+impl<'a, R, P> OptimizationProblemCallback<'a, R, P> {
+    fn new<E, M>(
+        problem: &'a OptimizationProblem<E, M, R, P>,
+        index_process_vars: &'a [i32],
+        index_parameter_vars: &'a [i32],
+    ) -> Self {
+        Self {
+            property_model: &problem.property_model,
+            process: &problem.process,
+            index_process_vars,
+            index_parameter_vars,
+        }
+    }
+}
+
+impl<'a, E: Residual + IdealGas, R: PropertyModel<EquationOfState = E>, P: ProcessModel<E>>
+    EvalCallback for OptimizationProblemCallback<'a, R, P>
 {
     fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32 {
         match self.evaluate(x) {
@@ -33,124 +52,92 @@ impl<
     }
 }
 
+impl<'a, E: Residual + IdealGas, R: PropertyModel<EquationOfState = E>, P: ProcessModel<E>>
+    OptimizationProblemCallback<'a, R, P>
+{
+    fn evaluate(&self, vars: &[f64]) -> EosResult<(f64, Vec<f64>)> {
+        let x: Vec<_> = self
+            .index_process_vars
+            .iter()
+            .map(|&i| vars[i as usize])
+            .collect();
+        let p: Vec<_> = self
+            .index_parameter_vars
+            .iter()
+            .map(|&i| vars[i as usize])
+            .collect();
+        let eos = self.property_model.build_eos(&p);
+        let (target, eq_constraints, ineq_constraints) = self.process.solve(&eos, &x)?;
+        Ok((target, [eq_constraints, ineq_constraints].concat()))
+    }
+}
+
 impl<
         E: Residual + IdealGas,
         M: MolecularRepresentation,
-        R: PropertyModel<M::ChemicalRecord, EquationOfState = E>,
+        R: PropertyModel<EquationOfState = E>,
         P: ProcessModel<E>,
     > OptimizationProblem<E, M, R, P>
 {
-    fn evaluate(&self, vars: &[f64]) -> EosResult<(f64, Vec<f64>)> {
-        let n_p = self.molecules.parameter_variables().len();
-        let n_y = self.molecules.structure_variables().len();
-        let (x, vars) = vars.split_at(vars.len() - n_p - n_y);
-        let (p, y) = vars.split_at(n_p);
-        let cr = self.molecules.build(y, p);
-        let eos = self.property_model.build_eos(cr)?;
-        let (target, eq_constraints, ineq_constraints) = self.process._solve(&eos, x)?;
-        Ok((target, [eq_constraints, ineq_constraints].concat()))
-    }
-
-    fn gradients(
-        &mut self,
-        kc: &Knitro,
-        vars: &[i32],
-        index_eq_cons: &[i32],
-        index_ineq_cons: &[i32],
-    ) -> Result<(Vec<f64>, Gradients, Vec<f64>), KnitroError> {
-        let x = kc.get_var_primal_values(vars)?;
-        let f = kc.get_obj_value()?;
-        let h_vec = kc.get_con_values(index_eq_cons)?;
-        let g_vec = kc.get_con_values(index_ineq_cons)?;
-        let (_, nabla_f) = kc.get_objgrad_values()?;
-        let f = Gradient::new(f, nabla_f);
-        let (_, _, jac) = kc.get_jacobian_values()?;
-        let lambda = kc.get_con_dual_values(index_eq_cons)?;
-
-        let mut h = Vec::with_capacity(index_eq_cons.len());
-        let mut g = Vec::with_capacity(index_ineq_cons.len());
-        let mut k = 0;
-        for val in h_vec {
-            let mut nabla = Vec::with_capacity(vars.len());
-            for _ in vars {
-                nabla.push(jac[k]);
-                k += 1;
-            }
-            h.push(Gradient::new(val, nabla));
-        }
-        for val in g_vec {
-            let mut nabla = Vec::with_capacity(vars.len());
-            for _ in vars {
-                nabla.push(jac[k]);
-                k += 1;
-            }
-            g.push(Gradient::new(val, nabla));
-        }
-        Ok((x, (f, g, h), lambda))
-    }
-
     fn solve(
         &mut self,
         x0: Option<&[f64]>,
         y0: Option<&[f64]>,
-        p0: Option<&[f64]>,
         options: Option<&str>,
-        mode: OptimizationMode,
-        gradients: Option<&mut (Vec<f64>, Gradients, Vec<f64>)>,
+        target: bool,
     ) -> Result<(f64, [Vec<f64>; 3]), KnitroError> {
         let kc = Knitro::new()?;
 
-        // Set up process variables and constraints
-        let [index_process_vars, index_eq_cons, index_ineq_cons] =
-            self.process.setup_knitro(&kc, x0, mode)?;
+        // declare procss variables
+        let index_process_vars = self.process.variables().setup_knitro(&kc, x0)?;
+
+        // add equality constraints
+        let index_eq_cons = kc.add_cons(self.process.equality_constraints())?;
+        for &i in &index_eq_cons {
+            kc.set_con_eqbnd(i, 0.0)?;
+        }
+
+        // add inequality constraints
+        let index_ineq_cons = kc.add_cons(self.process.inequality_constraints())?;
+        for &i in &index_ineq_cons {
+            kc.set_con_lobnd(i, 0.0)?;
+        }
         let index_cons = [index_eq_cons.clone(), index_ineq_cons.clone()].concat();
 
         // Set up CAMD formulation
-        let [index_structure_vars, index_parameter_vars] =
+        let (index_structure_vars, index_feature_vars) =
             self.molecules
-                .setup_knitro(&kc, y0, p0, &self.solutions, mode)?;
+                .setup_knitro(&kc, y0, &self.solutions, target)?;
+
+        // Set up property model
+        let index_parameter_vars = self.property_model.setup_knitro(&kc, &index_feature_vars)?;
 
         // Set up function callback
-        let mut cb = kc.add_eval_callback(true, &index_cons, self)?;
+        let mut callback =
+            OptimizationProblemCallback::new(self, &index_process_vars, &index_parameter_vars);
+        let mut cb = kc.add_eval_callback(true, &index_cons, &mut callback)?;
         if let Some(options) = options {
             kc.load_param_file(options)?;
         }
 
         // only evaluate gradients with respect to explicit variables
-        let mut vars = vec![index_process_vars.clone()];
-        if let OptimizationMode::MolecularDesign
-        | OptimizationMode::Target
-        | OptimizationMode::Gradients = mode
-        {
-            if index_parameter_vars.is_empty() {
-                vars.push(index_structure_vars.clone())
-            } else {
-                vars.push(index_parameter_vars.clone())
-            }
-        }
-        let vars = vars.concat();
+        let vars = [index_process_vars.clone(), index_parameter_vars.clone()].concat();
         let jac_vars = vec![&vars as &[i32]; index_cons.len()].concat();
         let jac_cons: Vec<_> = index_cons
             .iter()
             .flat_map(|&i| vec![i; vars.len()])
             .collect();
-        kc.set_cb_grad::<Self>(&mut cb, &vars, &jac_cons, &jac_vars, None)?;
+        kc.set_cb_grad::<OptimizationProblemCallback<R, P>>(
+            &mut cb, &vars, &jac_cons, &jac_vars, None,
+        )?;
 
         // Solve (MI)NLP
-        if let OptimizationMode::Gradients = mode {
-            _ = kc.solve();
-        } else {
-            kc.solve()?;
-        }
+        kc.solve()?;
 
         let t = kc.get_obj_value()?;
         let y = kc.get_var_primal_values(&index_structure_vars)?;
         let p = kc.get_var_primal_values(&index_parameter_vars)?;
         let x = kc.get_var_primal_values(&index_process_vars)?;
-
-        if let Some(gradients) = gradients {
-            *gradients = self.gradients(&kc, &vars, &index_eq_cons, &index_ineq_cons)?;
-        }
 
         Ok((t, [x.to_vec(), y.to_vec(), p.to_vec()]))
     }
@@ -160,75 +147,16 @@ impl<
         x0: &[f64],
         options: Option<&str>,
     ) -> Result<(f64, [Vec<f64>; 3]), KnitroError> {
-        self.solve(
-            Some(x0),
-            None,
-            None,
-            options,
-            OptimizationMode::Target,
-            None,
-        )
-    }
-
-    pub fn solve_fixed(
-        &mut self,
-        y: &[f64],
-        options: Option<&str>,
-    ) -> Result<OptimizationResult, KnitroError> {
-        let y_usize: Vec<_> = y.iter().map(|y| y.round() as usize).collect();
-        if let Some(res) = self.solutions.iter().find(|r| r.y == y_usize) {
-            Ok(res.clone())
-        } else {
-            let (target, [x, _, p]) = self.solve(
-                None,
-                Some(y),
-                None,
-                options,
-                OptimizationMode::FixedMolecule,
-                None,
-            )?;
-            let smiles = self.molecules.smiles(&y_usize);
-            let res = OptimizationResult::new(target, smiles, x, y_usize, p);
-            self.solutions.insert(res.clone());
-            Ok(res)
-        }
-    }
-
-    pub fn solve_feasibility(
-        &mut self,
-        y: &[f64],
-        options: Option<&str>,
-    ) -> Result<OptimizationResult, KnitroError> {
-        let (_, [x, y, p]) = self.solve(
-            None,
-            Some(y),
-            None,
-            options,
-            OptimizationMode::Feasibility,
-            None,
-        )?;
-        let y: Vec<_> = y.into_iter().map(|y| y.round() as usize).collect();
-        let smiles = self.molecules.smiles(&y);
-        let res = OptimizationResult::new(0.0, smiles, x, y, p);
-        self.solutions.insert(res.clone());
-        Ok(res)
+        self.solve(Some(x0), None, options, true)
     }
 
     pub fn solve_knitro_once(
         &mut self,
         x0: &[f64],
         y0: Option<&[f64]>,
-        p0: Option<&[f64]>,
         options: Option<&str>,
     ) -> Result<OptimizationResult, KnitroError> {
-        let (t, [x, y, p]) = self.solve(
-            Some(x0),
-            y0,
-            p0,
-            options,
-            OptimizationMode::MolecularDesign,
-            None,
-        )?;
+        let (t, [x, y, p]) = self.solve(Some(x0), y0, options, false)?;
 
         let y: Vec<_> = y.iter().map(|y| y.round() as usize).collect();
         let smiles = self.molecules.smiles(&y);
@@ -240,12 +168,11 @@ impl<
         &mut self,
         x0: &[f64],
         y0: Option<&[f64]>,
-        p0: Option<&[f64]>,
         n_solutions: usize,
         options: Option<&str>,
     ) {
         for k in 0..n_solutions {
-            match self.solve_knitro_once(x0, y0, p0, options) {
+            match self.solve_knitro_once(x0, y0, options) {
                 Ok(result) => {
                     self.solutions.insert(result.clone());
                     let mut solutions: Vec<_> = self.solutions.iter().collect();
@@ -268,27 +195,3 @@ impl<
         }
     }
 }
-
-#[derive(Clone, Default)]
-struct Gradient {
-    val: f64,
-    nabla: Vec<f64>,
-}
-
-impl Gradient {
-    fn new(val: f64, nabla: Vec<f64>) -> Self {
-        Self { val, nabla }
-    }
-
-    fn linearize(self, x: &[f64]) -> (Vec<f64>, f64) {
-        let rhs = self
-            .nabla
-            .iter()
-            .zip(x.iter())
-            .map(|(&n, &x)| n * x)
-            .sum::<f64>();
-        (self.nabla, rhs - self.val)
-    }
-}
-
-type Gradients = (Gradient, Vec<Gradient>, Vec<Gradient>);
