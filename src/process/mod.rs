@@ -1,11 +1,7 @@
 //! Simple unit operations and process models.
 use crate::variables::ProcessVariables;
-#[cfg(feature = "knitro_rs")]
-use crate::OptimizationMode;
 use feos::core::si::*;
 use feos::core::{EosResult, IdealGas, Residual, StateBuilder};
-#[cfg(feature = "knitro_rs")]
-use knitro_rs::{Knitro, KnitroError};
 use ndarray::{arr1, Array1};
 use petgraph::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -32,59 +28,6 @@ pub trait ProcessModel<E> {
 
     /// Solve the process model and return the target, and the values of equality and inequality constraints.
     fn solve(&self, eos: &Arc<E>, x: &[f64]) -> EosResult<(f64, Vec<f64>, Vec<f64>)>;
-
-    fn _solve(&self, eos: &Arc<E>, x: &[f64]) -> EosResult<(f64, Vec<f64>, Vec<f64>)>
-    where
-        E: Residual + IdealGas,
-    {
-        let (x, u) = x.split_at(self.variables().len());
-        match *u {
-            [u] => self.solve_infeasible(eos, x, u),
-            [] => self.solve(eos, x),
-            _ => unreachable!(),
-        }
-    }
-
-    fn solve_infeasible(
-        &self,
-        eos: &Arc<E>,
-        x: &[f64],
-        u: f64,
-    ) -> EosResult<(f64, Vec<f64>, Vec<f64>)> {
-        let (_, h, mut g) = self.solve(eos, x)?;
-        g.iter_mut().for_each(|g| *g += u);
-        Ok((u, h, g))
-    }
-
-    #[cfg(feature = "knitro_rs")]
-    fn setup_knitro(
-        &self,
-        kc: &Knitro,
-        x0: Option<&[f64]>,
-        mode: OptimizationMode,
-    ) -> Result<[Vec<i32>; 3], KnitroError> {
-        // declare continuous variables
-        let mut index_vars = self.variables().setup_knitro(kc, x0, mode)?;
-
-        // Declare feasibility bound
-        if let OptimizationMode::Feasibility = mode {
-            index_vars.push(kc.add_var()?);
-        }
-
-        // add equality constraints
-        let index_eq_cons = kc.add_cons(self.equality_constraints())?;
-        for &i in &index_eq_cons {
-            kc.set_con_eqbnd(i, 0.0)?;
-        }
-
-        // add inequality constraints
-        let index_ineq_cons = kc.add_cons(self.inequality_constraints())?;
-        for &i in &index_ineq_cons {
-            kc.set_con_lobnd(i, 0.0)?;
-        }
-
-        Ok([index_vars, index_eq_cons, index_ineq_cons])
-    }
 }
 
 /// The type used to index a [Process].

@@ -1,11 +1,9 @@
-use super::Gradients;
+use super::process_optimization::Gradients;
 use crate::process::ProcessModel;
-use crate::{
-    MolecularRepresentation, OptimizationMode, OptimizationProblem, OptimizationResult,
-    PropertyModel,
-};
+use crate::{MolecularRepresentation, OptimizationProblem, OptimizationResult, PropertyModel};
 use feos::core::{EosResult, IdealGas, Residual};
 use knitro_rs::{Knitro, KnitroError};
+use std::f64;
 
 #[derive(Clone, Copy)]
 pub enum OuterApproximationAlgorithm {
@@ -16,7 +14,7 @@ pub enum OuterApproximationAlgorithm {
 impl<
         E: Residual + IdealGas,
         M: MolecularRepresentation,
-        R: PropertyModel<M::ChemicalRecord, EquationOfState = E>,
+        R: PropertyModel<EquationOfState = E>,
         P: ProcessModel<E>,
     > OptimizationProblem<E, M, R, P>
 {
@@ -58,21 +56,10 @@ impl<
             f_u = f_u.min(res.target);
 
             // Evaluate gradients
-            let mut gradients = Default::default();
-            if self
-                .solve(
-                    Some(&res.x),
-                    Some(&y_fixed),
-                    Some(&res.p),
-                    options_nlp,
-                    OptimizationMode::Gradients,
-                    Some(&mut gradients),
-                )
-                .is_err()
-            {
+            let Ok((vars, (f, g, h), lambda)) = self.solve_gradients(&y_fixed, &res.x, options_nlp)
+            else {
                 return Ok(res);
-            }
-            let (vars, (f, g, h), lambda) = gradients;
+            };
 
             // Solve master MILP
             let Ok((f, y)) = self.solve_master(vars, (f, g, h), lambda, f_l, f_u, options_mip)
@@ -90,14 +77,17 @@ impl<
                 res = r;
                 println!("{:8.5} {:.5?} {:?}", res.target, res.x, res.smiles);
             } else {
-                let r = self.solve_feasibility(&y_fixed, options_nlp);
-                if let Ok(r) = r {
-                    res = r;
-                    println!("{:8.5} {:.5?} {:?}", res.target, res.x, res.smiles);
-                } else {
-                    println!("{:?} not converged!", res.smiles);
-                    return Ok(res);
-                }
+                let y_usize: Vec<_> = y_fixed.iter().map(|y| y.round() as usize).collect();
+                let smiles = self.molecules.smiles(&y_usize);
+                println!("{:?} not converged!", smiles);
+                self.solutions.insert(OptimizationResult::new(
+                    0.0,
+                    smiles,
+                    vec![],
+                    y_usize,
+                    vec![],
+                ));
+                return Ok(res);
             }
         }
         Err(feos::core::EosError::NotConverged(
@@ -122,26 +112,14 @@ impl<
                 ubd = ubd.min(res.target);
                 (res, true)
             } else {
-                let res = self.solve_feasibility(&y_fixed, options_nlp);
-                if let Ok(res) = res {
-                    (res, false)
-                } else {
-                    return Err(feos::core::EosError::NotConverged("Feasibility".into()));
-                }
+                return Err(feos::core::EosError::NotConverged("NLP subproblem".into()));
             };
 
             // Evaluate gradients
-            let mut gradients = Default::default();
-            self.solve(
-                Some(&res.x),
-                Some(&y_fixed),
-                Some(&res.p),
-                options_nlp,
-                OptimizationMode::Gradients,
-                Some(&mut gradients),
-            )
-            .unwrap();
-            let (vars, gradients, _) = gradients;
+            let Ok((vars, gradients, _)) = self.solve_gradients(&y_fixed, &res.x, options_nlp)
+            else {
+                return Ok(res);
+            };
             solutions.push((vars, gradients, feasible));
 
             // Solve master MILP
@@ -204,7 +182,6 @@ impl<
     ) -> Result<(f64, Vec<f64>), KnitroError> {
         // set up MILP
         let kc = Knitro::new()?;
-        let mode = OptimizationMode::MolecularDesign;
 
         // Declare auxiliary variable
         let mu = kc.add_vars(1)?[0];
@@ -212,11 +189,13 @@ impl<
         kc.set_var_upbnd(mu, z_u)?;
 
         // Declare process variables
-        let x = self.process.variables().setup_knitro(&kc, None, mode)?;
+        let x = self.process.variables().setup_knitro(&kc, None)?;
 
-        let [y, p] = self
+        let (y, n) = self
             .molecules
-            .setup_knitro(&kc, None, None, &self.solutions, mode)?;
+            .setup_knitro(&kc, None, &self.solutions, false)?;
+
+        let p = self.property_model.setup_knitro(&kc, &n)?;
 
         let vars = [x, p.clone()].concat();
 
@@ -272,18 +251,19 @@ impl<
     ) -> Result<(f64, Vec<f64>), KnitroError> {
         // set up MILP
         let kc = Knitro::new()?;
-        let mode = OptimizationMode::MolecularDesign;
 
         // Declare auxiliary variable
         let eta = kc.add_vars(1)?[0];
         kc.set_var_upbnd(eta, ubd)?;
 
         // Declare process variables
-        let x = self.process.variables().setup_knitro(&kc, None, mode)?;
+        let x = self.process.variables().setup_knitro(&kc, None)?;
 
-        let [y, p] = self
+        let (y, n) = self
             .molecules
-            .setup_knitro(&kc, None, None, &self.solutions, mode)?;
+            .setup_knitro(&kc, None, &self.solutions, false)?;
+
+        let p = self.property_model.setup_knitro(&kc, &n)?;
 
         let vars = [x, p.clone()].concat();
 

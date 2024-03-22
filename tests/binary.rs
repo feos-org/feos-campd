@@ -5,8 +5,8 @@ use feos::core::{EosResult, Residual, State};
 use feos::pcsaft::{PcSaft, PcSaftBinaryRecord, PcSaftParameters, PcSaftRecord};
 use feos_campd::process::ProcessModel;
 use feos_campd::{
-    CoMTCAMD, CoMTCAMDBinary, OptimizationProblem, OuterApproximationAlgorithm, ProcessVariables,
-    Variable,
+    CoMTCAMD, CoMTCAMDBinary, CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel,
+    OptimizationProblem, OuterApproximationAlgorithm, ProcessVariables, Variable,
 };
 use knitro_rs::KnitroError;
 use ndarray::arr1;
@@ -16,14 +16,16 @@ use std::sync::Arc;
 #[test]
 pub fn test_binary() -> Result<(), KnitroError> {
     let camd = CoMTCAMD::from_json("tests/mixture_test_comps.json").unwrap();
+    let pcsaft = CoMTCAMDPropertyModel::from_json("tests/mixture_test_comps.json").unwrap();
     let y0 = camd.get_initial_values("molecule", &HashMap::from([("pentane", 1)]));
     let y1 = camd.get_initial_values("molecule", &HashMap::from([("diethyl ether", 1)]));
     let y = [y0, y1].concat();
     let k_ij: Vec<BinaryRecord<String, f64>> =
         BinaryRecord::from_json("tests/mixture_test_comps_binary.json").unwrap();
-    let camd_binary = CoMTCAMDBinary::new([camd.clone(), camd], true, Some(k_ij));
-    let mut problem =
-        OptimizationProblem::new(camd_binary.clone(), camd_binary, CriticalPointModel);
+    let camd_binary = CoMTCAMDBinary::new([camd.clone(), camd], true);
+    let pcsaft_binary =
+        CoMTCAMDBinaryPropertyModel::new([pcsaft.clone(), pcsaft], Some(k_ij), true, false);
+    let mut problem = OptimizationProblem::new(camd_binary, pcsaft_binary, CriticalPointModel);
     let result = problem
         .solve_outer_approximation(
             y,
@@ -70,7 +72,7 @@ struct CriticalPointModel;
 
 impl<E: Residual> ProcessModel<E> for CriticalPointModel {
     fn variables(&self) -> ProcessVariables {
-        vec![Variable::continuous(0.0, 1.0, 0.5)].into()
+        vec![Variable::continuous("x".into(), 0.0, 1.0, 0.5)].into()
     }
 
     fn equality_constraints(&self) -> usize {

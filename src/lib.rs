@@ -15,12 +15,12 @@ pub mod process;
 mod property;
 mod variables;
 pub use molecule::{
-    CoMTCAMD, CoMTCAMDBinary, MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
+    CoMTCAMD, CoMTCAMDBinary, CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel,
+    MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
 };
-pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
-pub use variables::{
-    Constraint, ParameterVariables, ProcessVariables, StructureVariables, Variable, Variables,
-};
+// pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
+pub use property::PropertyModel;
+pub use variables::{Constraint, ProcessVariables, StructureVariables, Variable, Variables};
 
 #[cfg(feature = "knitro_rs")]
 mod solver;
@@ -29,15 +29,6 @@ pub use solver::OuterApproximationAlgorithm;
 
 #[cfg(feature = "python")]
 mod python;
-
-#[derive(Clone, Copy)]
-pub enum OptimizationMode {
-    FixedMolecule,
-    Gradients,
-    Target,
-    MolecularDesign,
-    Feasibility,
-}
 
 /// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel](process::ProcessModel).
 #[derive(Serialize, Deserialize)]

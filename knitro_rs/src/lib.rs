@@ -141,7 +141,7 @@ impl Knitro {
         Ok(())
     }
 
-    pub fn set_var_primal_initial_value(
+    pub fn set_var_primal_init_value(
         &self,
         indexVar: i32,
         xInitVal: f64,
@@ -155,7 +155,7 @@ impl Knitro {
         Ok(())
     }
 
-    pub fn set_var_primal_initial_values(
+    pub fn set_var_primal_init_values(
         &self,
         indexVars: &[i32],
         xInitVals: &[f64],
@@ -170,6 +170,15 @@ impl Knitro {
                     xInitVals.as_ptr(),
                 ),
             )?;
+        }
+        Ok(())
+    }
+
+    pub fn set_var_name(&self, indexVar: i32, cName: &str) -> Result<(), KnitroError> {
+        let cName = std::ffi::CString::new(cName).unwrap().into_bytes_with_nul();
+        let cName = cName.as_ptr() as *mut i8;
+        unsafe {
+            Self::handle_error("KN_set_var_names", KN_set_var_name(self.0, indexVar, cName))?;
         }
         Ok(())
     }

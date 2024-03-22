@@ -6,6 +6,7 @@ mip_nodealg 4                   # KN_MIP_NODEALG_ACT_SQP
 mip_heuristic none              # no heuristics
 mip_outlevel 3                  # detailed output
 outmode     1                   # print to file
+outlev      6                   # full output
 
 mip_selectrule 2                # select the node with the best relaxation bound
 findiff_relstepsize 1e-3        # step size for forward differences
