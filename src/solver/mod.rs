@@ -2,35 +2,41 @@ use crate::process::ProcessModel;
 use crate::*;
 use feos::core::{EosResult, IdealGas, Residual};
 use knitro_rs::*;
+use std::array;
 
 mod outer_approximation;
 mod process_optimization;
 pub use outer_approximation::OuterApproximationAlgorithm;
 
-struct OptimizationProblemCallback<'a, R, P> {
+struct OptimizationProblemCallback<'a, R, P, const N: usize> {
     property_model: &'a R,
     process: &'a P,
-    index_process_vars: &'a [i32],
-    index_parameter_vars: &'a [i32],
+    process_vars: usize,
+    parameter_vars: usize,
 }
 
-impl<'a, R, P> OptimizationProblemCallback<'a, R, P> {
+impl<'a, R, P, const N: usize> OptimizationProblemCallback<'a, R, P, N> {
     fn new<E, M>(
-        problem: &'a OptimizationProblem<E, M, R, P>,
-        index_process_vars: &'a [i32],
-        index_parameter_vars: &'a [i32],
+        problem: &'a OptimizationProblem<E, M, R, P, N>,
+        process_vars: usize,
+        parameter_vars: usize,
     ) -> Self {
         Self {
             property_model: &problem.property_model,
             process: &problem.process,
-            index_process_vars,
-            index_parameter_vars,
+            process_vars,
+            parameter_vars,
         }
     }
 }
 
-impl<'a, E: Residual + IdealGas, R: PropertyModel<EquationOfState = E>, P: ProcessModel<E>>
-    EvalCallback for OptimizationProblemCallback<'a, R, P>
+impl<
+        'a,
+        E: Residual + IdealGas,
+        R: PropertyModel<N, EquationOfState = E>,
+        P: ProcessModel<E>,
+        const N: usize,
+    > EvalCallback for OptimizationProblemCallback<'a, R, P, N>
 {
     fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32 {
         match self.evaluate(x) {
@@ -52,40 +58,39 @@ impl<'a, E: Residual + IdealGas, R: PropertyModel<EquationOfState = E>, P: Proce
     }
 }
 
-impl<'a, E: Residual + IdealGas, R: PropertyModel<EquationOfState = E>, P: ProcessModel<E>>
-    OptimizationProblemCallback<'a, R, P>
+impl<
+        'a,
+        E: Residual + IdealGas,
+        R: PropertyModel<N, EquationOfState = E>,
+        P: ProcessModel<E>,
+        const N: usize,
+    > OptimizationProblemCallback<'a, R, P, N>
 {
     fn evaluate(&self, vars: &[f64]) -> EosResult<(f64, Vec<f64>)> {
-        let x: Vec<_> = self
-            .index_process_vars
-            .iter()
-            .map(|&i| vars[i as usize])
-            .collect();
-        let p: Vec<_> = self
-            .index_parameter_vars
-            .iter()
-            .map(|&i| vars[i as usize])
-            .collect();
-        let eos = self.property_model.build_eos(&p);
-        let (target, eq_constraints, ineq_constraints) = self.process.solve(&eos, &x)?;
+        let x = &vars[..self.process_vars];
+        let p = &vars[vars.len() - self.parameter_vars..];
+        let eos = self.property_model.build_eos(p);
+        let (target, eq_constraints, ineq_constraints) = self.process.solve(&eos, x)?;
         Ok((target, [eq_constraints, ineq_constraints].concat()))
     }
 }
 
+#[allow(clippy::type_complexity)]
 impl<
         E: Residual + IdealGas,
         M: MolecularRepresentation,
-        R: PropertyModel<EquationOfState = E>,
+        R: PropertyModel<N, EquationOfState = E>,
         P: ProcessModel<E>,
-    > OptimizationProblem<E, M, R, P>
+        const N: usize,
+    > OptimizationProblem<E, M, R, P, N>
 {
     fn solve(
         &mut self,
         x0: Option<&[f64]>,
-        y0: Option<&[f64]>,
+        y0: Option<&[Vec<f64>; N]>,
         options: Option<&str>,
         target: bool,
-    ) -> Result<(f64, [Vec<f64>; 3]), KnitroError> {
+    ) -> Result<(f64, Vec<f64>, [Vec<f64>; N]), KnitroError> {
         let kc = Knitro::new()?;
 
         // declare process variables
@@ -105,29 +110,49 @@ impl<
         let index_cons = [index_eq_cons.clone(), index_ineq_cons.clone()].concat();
 
         // Set up CAMD formulation
-        let (index_structure_vars, index_feature_vars) =
-            self.molecules
-                .setup_knitro(&kc, y0, &self.solutions, target)?;
+        let mut index_structure_vars = array::from_fn(|_| Vec::new());
+        let index_feature_vars = array::from_fn(|i| {
+            let (y, f) = self.molecules[i]
+                .setup_knitro(&kc, y0.map(|y0| &y0[i][..]), target)
+                .unwrap();
+            index_structure_vars[i].extend(y);
+            f
+        });
+
+        // integer cuts
+        let all_structure_vars = index_structure_vars.concat();
+        for solution in &self.solutions {
+            let y0 = &solution.y;
+            let coefs: Vec<_> = y0.iter().map(|&y0| 1.0 - 2.0 * y0 as f64).collect();
+            let lobnd = 1.0 - y0.iter().map(|&y0| y0 as f64).sum::<f64>();
+            Constraint::new()
+                .linear_struct(all_structure_vars.clone(), coefs)
+                .lobnd(lobnd)
+                .setup_knitro(&kc)?;
+        }
 
         // Set up property model
         let index_parameter_vars = self.property_model.setup_knitro(&kc, &index_feature_vars)?;
 
         // Set up function callback
-        let mut callback =
-            OptimizationProblemCallback::new(self, &index_process_vars, &index_parameter_vars);
+        let mut callback = OptimizationProblemCallback::new(
+            self,
+            index_process_vars.len(),
+            index_parameter_vars.len(),
+        );
         let mut cb = kc.add_eval_callback(true, &index_cons, &mut callback)?;
         if let Some(options) = options {
             kc.load_param_file(options)?;
         }
 
         // only evaluate gradients with respect to explicit variables
-        let vars = [index_process_vars.clone(), index_parameter_vars.clone()].concat();
+        let vars = [index_process_vars.clone(), index_parameter_vars].concat();
         let jac_vars = vec![&vars as &[i32]; index_cons.len()].concat();
         let jac_cons: Vec<_> = index_cons
             .iter()
             .flat_map(|&i| vec![i; vars.len()])
             .collect();
-        kc.set_cb_grad::<OptimizationProblemCallback<R, P>>(
+        kc.set_cb_grad::<OptimizationProblemCallback<R, P, N>>(
             &mut cb, &vars, &jac_cons, &jac_vars, None,
         )?;
 
@@ -135,39 +160,37 @@ impl<
         kc.solve()?;
 
         let t = kc.get_obj_value()?;
-        let y = kc.get_var_primal_values(&index_structure_vars)?;
-        let p = kc.get_var_primal_values(&index_parameter_vars)?;
+        let y = index_structure_vars.map(|y| kc.get_var_primal_values(&y).unwrap());
         let x = kc.get_var_primal_values(&index_process_vars)?;
 
-        Ok((t, [x.to_vec(), y.to_vec(), p.to_vec()]))
+        Ok((t, x, y))
     }
 
     pub fn solve_target(
         &mut self,
         x0: &[f64],
         options: Option<&str>,
-    ) -> Result<(f64, [Vec<f64>; 3]), KnitroError> {
+    ) -> Result<(f64, Vec<f64>, [Vec<f64>; N]), KnitroError> {
         self.solve(Some(x0), None, options, true)
     }
 
     pub fn solve_knitro_once(
         &mut self,
         x0: &[f64],
-        y0: Option<&[f64]>,
+        y0: Option<&[Vec<f64>; N]>,
         options: Option<&str>,
     ) -> Result<OptimizationResult, KnitroError> {
-        let (t, [x, y, p]) = self.solve(Some(x0), y0, options, false)?;
+        let (t, x, y) = self.solve(Some(x0), y0, options, false)?;
 
-        let y: Vec<_> = y.iter().map(|y| y.round() as usize).collect();
-        let smiles = self.molecules.smiles(&y);
+        let (y, smiles) = self.smiles(&y);
         // println!("{t} {y:?} {x:?}");
-        Ok(OptimizationResult::new(t, smiles, x, y, p))
+        Ok(OptimizationResult::new(t, smiles, x, y))
     }
 
     pub fn solve_knitro(
         &mut self,
         x0: &[f64],
-        y0: Option<&[f64]>,
+        y0: Option<&[Vec<f64>; N]>,
         n_solutions: usize,
         options: Option<&str>,
     ) {

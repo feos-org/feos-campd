@@ -1,22 +1,16 @@
 use crate::variables::{Constraint, ExplicitVariable, StructureVariables};
-#[cfg(feature = "knitro_rs")]
-use crate::OptimizationResult;
 use indexmap::IndexMap;
 use itertools::Itertools;
 #[cfg(feature = "knitro_rs")]
 use knitro_rs::{Knitro, KnitroError};
 use ndarray::{Array, Array1};
-#[cfg(feature = "knitro_rs")]
-use std::collections::HashSet;
 
 mod comt_camd;
-mod comt_camd_binary;
 mod disjunction;
-// mod mixture;
 mod polynomial;
 mod supermolecule;
-pub use comt_camd::{CoMTCAMD, CoMTCAMDPropertyModel};
-pub use comt_camd_binary::{CoMTCAMDBinary, CoMTCAMDBinaryPropertyModel};
+pub use comt_camd::{CoMTCAMD, IdealGasRecord};
+pub use disjunction::Disjunction;
 pub use supermolecule::{SegmentAndBondCount, SuperMolecule};
 
 /// A generic molecular representation to be used in an [OptimizationProblem](super::OptimizationProblem).
@@ -36,7 +30,7 @@ pub trait MolecularRepresentation {
 
     fn constraints(&self, index_structure_vars: &[i32]) -> Vec<Constraint>;
 
-    fn smiles(&self, y: &[usize]) -> Vec<String>;
+    fn smiles(&self, y: &[usize]) -> String;
 
     fn generate_solutions(&self) -> Vec<Array1<i32>> {
         let mut res = Vec::new();
@@ -83,7 +77,6 @@ pub trait MolecularRepresentation {
         &self,
         kc: &Knitro,
         y0: Option<&[f64]>,
-        solutions: &HashSet<OptimizationResult>,
         target: bool,
     ) -> Result<(Vec<i32>, IndexMap<String, i32>), KnitroError> {
         // define structure variables
@@ -101,16 +94,6 @@ pub trait MolecularRepresentation {
             .iter()
             .try_for_each(|c| c.setup_knitro(kc))?;
 
-        // integer cuts
-        for solution in solutions.iter() {
-            let y0 = &solution.y;
-            let coefs: Vec<_> = y0.iter().map(|&y0| 1.0 - 2.0 * y0 as f64).collect();
-            let lobnd = 1.0 - y0.iter().map(|&y0| y0 as f64).sum::<f64>();
-            Constraint::new()
-                .linear_struct(index_structure_vars.clone(), coefs)
-                .lobnd(lobnd)
-                .setup_knitro(kc)?;
-        }
         Ok((index_structure_vars, index_feature_vars))
     }
 }

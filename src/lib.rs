@@ -1,24 +1,19 @@
 #![warn(clippy::all)]
 #![allow(clippy::too_many_arguments)]
-use feos::core::parameter::ParameterError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
-use std::fs::File;
 use std::hash::{Hash, Hasher};
-use std::io::{BufReader, BufWriter};
 use std::marker::PhantomData;
-use std::path::Path;
 
 mod molecule;
 pub mod process;
 mod property;
 mod variables;
-pub use molecule::{
-    CoMTCAMD, CoMTCAMDBinary, CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel,
-    MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
+pub use molecule::{CoMTCAMD, MolecularRepresentation, SegmentAndBondCount, SuperMolecule};
+pub use property::{
+    CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel, GcPcSaftPropertyModel, PropertyModel,
 };
-pub use property::{GcPcSaftPropertyModel, PropertyModel};
 pub use variables::{Constraint, ProcessVariables, StructureVariables, Variable, Variables};
 
 #[cfg(feature = "knitro_rs")]
@@ -30,17 +25,17 @@ pub use solver::OuterApproximationAlgorithm;
 mod python;
 
 /// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel](process::ProcessModel).
-#[derive(Serialize, Deserialize)]
-pub struct OptimizationProblem<E, M, R, P> {
+// #[derive(Serialize, Deserialize)]
+pub struct OptimizationProblem<E, M, R, P, const N: usize> {
     eos: PhantomData<E>,
-    pub molecules: M,
+    pub molecules: [M; N],
     pub property_model: R,
     pub process: P,
     pub solutions: HashSet<OptimizationResult>,
 }
 
-impl<E, M, R, P> OptimizationProblem<E, M, R, P> {
-    pub fn new(molecules: M, property_model: R, process: P) -> Self {
+impl<E, M, R, P, const N: usize> OptimizationProblem<E, M, R, P, N> {
+    pub fn new(molecules: [M; N], property_model: R, process: P) -> Self {
         Self {
             eos: PhantomData,
             molecules,
@@ -49,28 +44,22 @@ impl<E, M, R, P> OptimizationProblem<E, M, R, P> {
             solutions: HashSet::new(),
         }
     }
-}
 
-impl<E, M, R, P> OptimizationProblem<E, M, R, P> {
-    pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError>
+    fn smiles(&self, y: &[Vec<f64>; N]) -> (Vec<usize>, Vec<String>)
     where
-        for<'a> M: Deserialize<'a>,
-        for<'a> R: Deserialize<'a>,
-        for<'a> P: Deserialize<'a>,
+        M: MolecularRepresentation,
     {
-        Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
-    }
-
-    pub fn to_json<FP: AsRef<Path>>(&self, file: FP) -> Result<(), ParameterError>
-    where
-        M: Serialize,
-        R: Serialize,
-        P: Serialize,
-    {
-        Ok(serde_json::to_writer_pretty(
-            BufWriter::new(File::create(file)?),
-            self,
-        )?)
+        let (y_usize, smiles): (Vec<_>, Vec<_>) = y
+            .iter()
+            .zip(&self.molecules)
+            .map(|(y, m)| {
+                let y: Vec<_> = y.iter().map(|y| y.round() as usize).collect();
+                let smiles = m.smiles(&y);
+                (y, smiles)
+            })
+            .unzip();
+        let y_usize = y_usize.concat();
+        (y_usize, smiles)
     }
 }
 
@@ -85,19 +74,15 @@ pub struct OptimizationResult {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub y: Vec<usize>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    #[serde(default)]
-    pub p: Vec<f64>,
 }
 
 impl OptimizationResult {
-    pub fn new(target: f64, smiles: Vec<String>, x: Vec<f64>, y: Vec<usize>, p: Vec<f64>) -> Self {
+    pub fn new(target: f64, smiles: Vec<String>, x: Vec<f64>, y: Vec<usize>) -> Self {
         Self {
             target,
             smiles,
             x,
             y,
-            p,
         }
     }
 }

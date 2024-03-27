@@ -1,8 +1,8 @@
 use super::polynomial::{
-    Polynomial, Polynomial2, Variable as PolyVar,
-    Variable::{Const, Var},
+    Polynomial, Polynomial2,
+    Variable::{self as PolyVar, Const, Var},
 };
-use super::{Constraint, MolecularRepresentation, StructureVariables};
+use super::{Constraint, Disjunction, MolecularRepresentation, StructureVariables};
 use crate::variables::{ExplicitVariable, Variable};
 use feos::core::parameter::{Identifier, SegmentCount};
 use indexmap::IndexMap;
@@ -315,8 +315,8 @@ impl SuperMolecule {
         }
     }
 
-    pub fn all(size: usize) -> [Self; 7] {
-        [
+    pub fn all(size: usize) -> Disjunction<Self, 7> {
+        Disjunction([
             SuperMolecule::alkane(size),
             SuperMolecule::alkene(size),
             SuperMolecule::alkyne(size),
@@ -324,23 +324,28 @@ impl SuperMolecule {
             SuperMolecule::methylether(size),
             SuperMolecule::ketone(size),
             SuperMolecule::amine(size),
-        ]
+        ])
     }
 
-    pub fn non_associating(size: usize) -> [Self; 5] {
-        [
+    pub fn non_associating(size: usize) -> Disjunction<Self, 5> {
+        Disjunction([
             SuperMolecule::alkane(size),
             SuperMolecule::alkene(size),
             SuperMolecule::alkyne(size),
             SuperMolecule::methylether(size),
             SuperMolecule::ketone(size),
-        ]
+        ])
     }
 
-    pub fn get_initial_values(molecules: &[Self], structure: &str, y0: &[f64]) -> Vec<f64> {
+    pub fn get_initial_values<const N: usize>(
+        molecules: &Disjunction<Self, N>,
+        structure: &str,
+        y0: &[f64],
+    ) -> Vec<f64> {
         let mut y = y0.to_vec();
         let mut c = Vec::new();
         let n_y = molecules
+            .0
             .iter()
             .map(|m| m.structure_variables().len())
             .max()
@@ -348,7 +353,7 @@ impl SuperMolecule {
         if y0.len() != n_y {
             panic!("Need {n_y} structure variables!");
         }
-        for m in molecules {
+        for m in &molecules.0 {
             if m.name == structure {
                 y.extend_from_slice(y0);
                 c.push(1.0);
@@ -576,10 +581,9 @@ impl MolecularRepresentation for SuperMolecule {
         constraints
     }
 
-    fn smiles(&self, y: &[usize]) -> Vec<String> {
+    fn smiles(&self, y: &[usize]) -> String {
         let y_iter = &mut y.iter().copied();
-        vec![self
-            .alkyl_tails()
+        self.alkyl_tails()
             .into_iter()
             .zip(self.functional_group.smiles.iter())
             .fold(String::new(), |mut acc, (s, sm)| {
@@ -590,7 +594,7 @@ impl MolecularRepresentation for SuperMolecule {
                         .collect::<String>(),
                 );
                 acc
-            })]
+            })
     }
 }
 
@@ -670,7 +674,7 @@ mod test {
         let molecules = SuperMolecule::all(3);
         let total_disjunct = molecules.generate_solutions().len();
         let mut total = 0;
-        for molecule in molecules {
+        for molecule in molecules.0 {
             let solutions = molecule.generate_solutions().len();
             println!("{} {}", molecule.name, solutions);
             total += solutions;
@@ -770,12 +774,12 @@ mod test {
         assert_relative_eq!(features["=C<-=CH"], 1.0);
     }
 
-    fn molecule_disjunct() -> [SuperMolecule; 3] {
-        [
+    fn molecule_disjunct() -> Disjunction<SuperMolecule, 3> {
+        Disjunction([
             SuperMolecule::alcohol(5),
             SuperMolecule::methylether(5),
             SuperMolecule::ketone(5),
-        ]
+        ])
     }
 
     #[test]
