@@ -8,17 +8,17 @@ use feos_campd::{
     CoMTCAMD, CoMTCAMDBinary, CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel,
     OptimizationProblem, OuterApproximationAlgorithm, ProcessVariables, Variable,
 };
+use indexmap::IndexMap;
 use knitro_rs::KnitroError;
 use ndarray::arr1;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 #[test]
 pub fn test_binary() -> Result<(), KnitroError> {
     let camd = CoMTCAMD::from_json("tests/mixture_test_comps.json").unwrap();
     let pcsaft = CoMTCAMDPropertyModel::from_json("tests/mixture_test_comps.json").unwrap();
-    let y0 = camd.get_initial_values("molecule", &HashMap::from([("pentane", 1)]));
-    let y1 = camd.get_initial_values("molecule", &HashMap::from([("diethyl ether", 1)]));
+    let y0 = camd.get_initial_values("molecule", &IndexMap::from([("pentane", 1)]));
+    let y1 = camd.get_initial_values("molecule", &IndexMap::from([("diethyl ether", 1)]));
     let y = [y0, y1].concat();
     let k_ij: Vec<BinaryRecord<String, f64>> =
         BinaryRecord::from_json("tests/mixture_test_comps_binary.json").unwrap();
@@ -72,7 +72,7 @@ struct CriticalPointModel;
 
 impl<E: Residual> ProcessModel<E> for CriticalPointModel {
     fn variables(&self) -> ProcessVariables {
-        vec![Variable::continuous("x".into(), 0.0, 1.0, 0.5)].into()
+        vec![("x", Variable::continuous(0.0, 1.0, 0.5))].into()
     }
 
     fn equality_constraints(&self) -> usize {

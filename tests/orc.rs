@@ -5,7 +5,7 @@ use feos::pcsaft::{PcSaft, PcSaftParameters};
 use feos_campd::process::{OrganicRankineCycle, ProcessModel};
 use feos_campd::ProcessVariables;
 #[cfg(feature = "knitro_rs")]
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -60,6 +60,45 @@ fn test_validation() -> Result<(), KnitroError> {
 
 #[test]
 #[cfg(feature = "knitro_rs")]
+fn test_validation_hetero() -> Result<(), KnitroError> {
+    let molecule = SuperMolecule::alkane(5);
+    let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
+    let pcsaft = GcPcSaftPropertyModel::new(
+        molecule.clone(),
+        "tests/sauer2014_hetero.json",
+        "tests/joback1987.json",
+        None,
+    )
+    .unwrap();
+    let mut problem = OptimizationProblem::new(molecule.clone(), pcsaft.clone(), orc.clone());
+    let solution = problem
+        .solve_outer_approximation(
+            vec![1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+            OuterApproximationAlgorithm::DuranGrossmann(false),
+            Some("tests/options_target.opt"),
+            Some("tests/options_MILP.opt"),
+        )
+        .unwrap();
+    assert_relative_eq!(-1.5640076533528697, solution.target, max_relative = 1e-5);
+
+    let mut problem = OptimizationProblem::new(molecule, pcsaft, orc);
+    #[cfg(feature = "knitro_13")]
+    let options = Some("tests/options_13.opt");
+    #[cfg(feature = "knitro_12")]
+    let options = Some("tests/options_12.opt");
+    let (_, [x, y, p]) =
+        problem.solve_target(&[0.786, -4.5, -1.2, 0.8], Some("tests/options_target.opt"))?;
+    println!("{x:?}");
+    println!("{y:?}");
+    println!("{p:?}");
+    let solution = problem.solve_knitro_once(&x, Some(&y), options)?;
+    assert_relative_eq!(-1.5640076533528697, solution.target, max_relative = 1e-5);
+    println!("{solution}");
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "knitro_rs")]
 fn test_target() -> Result<(), KnitroError> {
     let molecule = SuperMolecule::alkane(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
@@ -75,6 +114,8 @@ fn test_target() -> Result<(), KnitroError> {
 #[test]
 #[cfg(feature = "knitro_rs")]
 fn test_fixed() -> Result<(), KnitroError> {
+    use indexmap::IndexMap;
+
     let molecule = SuperMolecule::alkane(5);
     let orc = OrganicRankineCycle::from_json("tests/orc.json").unwrap();
     let pcsaft = CoMTCAMDPropertyModel::from_json("tests/comt_camd_non_assoc.json").unwrap();
@@ -91,7 +132,7 @@ fn test_fixed() -> Result<(), KnitroError> {
 
     let y0 = problem
         .molecules
-        .get_initial_values("alkanes", &HashMap::from([("CH3", 2), ("CH2", 1)]));
+        .get_initial_values("alkanes", &IndexMap::from([("CH3", 2), ("CH2", 1)]));
     let res = problem.solve_fixed(&y0, Some("tests/options_target.opt"))?;
     println!("{}", res.target);
     println!("{:?}", res.x);
@@ -110,7 +151,7 @@ fn test_outer_approximation_duran() -> EosResult<()> {
     let mut problem = OptimizationProblem::new(camd, pcsaft, orc);
     let y0 = problem.molecules.get_initial_values(
         "alkanes",
-        &HashMap::from([("CH3", 3), ("CH2", 1), (">CH", 1)]),
+        &IndexMap::from([("CH3", 3), ("CH2", 1), (">CH", 1)]),
     );
     let solution = problem.solve_outer_approximation(
         y0.clone(),
@@ -131,7 +172,7 @@ fn test_outer_approximation_fletcher() -> EosResult<()> {
     let mut problem = OptimizationProblem::new(camd, pcsaft, orc);
     let y0 = problem.molecules.get_initial_values(
         "alkenes",
-        &HashMap::from([("CH3", 1), ("=CH2", 1), ("=CH", 1)]),
+        &IndexMap::from([("CH3", 1), ("=CH2", 1), ("=CH", 1)]),
     );
     let solution = problem.solve_outer_approximation(
         y0,
@@ -152,7 +193,7 @@ fn test_outer_approximation_molecules() -> EosResult<()> {
     let mut problem = OptimizationProblem::new(camd, pcsaft, orc);
     let y0 = problem
         .molecules
-        .get_initial_values("molecule", &HashMap::from([("dimethyl ether", 1)]));
+        .get_initial_values("molecule", &IndexMap::from([("dimethyl ether", 1)]));
     let solution = problem.solve_outer_approximation(
         y0,
         OuterApproximationAlgorithm::DuranGrossmann(true),
@@ -172,7 +213,7 @@ fn test_outer_approximation_ranking() -> EosResult<()> {
     let mut problem = OptimizationProblem::new(camd, pcsaft, orc);
     let y0 = problem.molecules.get_initial_values(
         "alkanes",
-        &HashMap::from([("CH3", 3), ("CH2", 1), (">CH", 1)]),
+        &IndexMap::from([("CH3", 3), ("CH2", 1), (">CH", 1)]),
     );
     problem.outer_approximation_ranking(
         &y0,
@@ -193,8 +234,8 @@ fn test_outer_approximation_ranking_molecules() -> EosResult<()> {
     let mut problem = OptimizationProblem::new(camd, pcsaft, orc);
     let y0 = problem
         .molecules
-        .get_initial_values("molecule", &HashMap::from([("cyclopentane", 1)]));
-    // .get_initial_values("molecule", &HashMap::from([("ethylene", 1)]));
+        .get_initial_values("molecule", &IndexMap::from([("cyclopentane", 1)]));
+    // .get_initial_values("molecule", &IndexMap::from([("ethylene", 1)]));
     problem.outer_approximation_ranking(
         &y0,
         OuterApproximationAlgorithm::FletcherLeyffer,

@@ -66,7 +66,9 @@ impl<
             Ok(res.clone())
         } else {
             let f = self.molecules.evaluate_feature_variables(y);
+            println!("{f:?}");
             let p = self.property_model.evaluate_parameter_variables(&f);
+            println!("{p:?}");
 
             // Set up process variables and constraints
             let kc = Knitro::new()?;
@@ -121,7 +123,7 @@ impl<
 
         // declare process variables
         for &x in x {
-            Variable::fixed("fixed_process_variable".into(), x).setup_knitro(&kc)?;
+            Variable::fixed(x).setup_knitro(&kc, "fixed_process_variable")?;
         }
 
         // add equality constraints
@@ -140,7 +142,7 @@ impl<
 
         // Set up property model
         for p in p {
-            Variable::fixed("fixed_param".into(), p).setup_knitro(&kc)?;
+            Variable::fixed(p).setup_knitro(&kc, "fixed_param")?;
         }
 
         // Set up function callback

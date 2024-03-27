@@ -197,7 +197,7 @@ impl<
 
         let p = self.property_model.setup_knitro(&kc, &n)?;
 
-        let vars = [x, p.clone()].concat();
+        let vars = [x, p].concat();
 
         // Linearized target function
         let con = kc.add_con()?;
@@ -265,7 +265,7 @@ impl<
 
         let p = self.property_model.setup_knitro(&kc, &n)?;
 
-        let vars = [x, p.clone()].concat();
+        let vars = [x, p].concat();
 
         for (x_i, (f, g, h), feasible) in solutions {
             // Linearized target function

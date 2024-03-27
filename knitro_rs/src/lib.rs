@@ -178,7 +178,7 @@ impl Knitro {
         let cName = std::ffi::CString::new(cName).unwrap().into_bytes_with_nul();
         let cName = cName.as_ptr() as *mut i8;
         unsafe {
-            Self::handle_error("KN_set_var_names", KN_set_var_name(self.0, indexVar, cName))?;
+            Self::handle_error("KN_set_var_name", KN_set_var_name(self.0, indexVar, cName))?;
         }
         Ok(())
     }

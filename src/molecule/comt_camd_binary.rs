@@ -6,7 +6,7 @@ use feos::core::parameter::{BinaryRecord, Parameter};
 use feos::core::EquationOfState;
 use feos::ideal_gas::{IdealGasModel, Joback};
 use feos::pcsaft::{PcSaft, PcSaftBinaryRecord, PcSaftParameters};
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::iter;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ impl CoMTCAMDBinary {
     pub fn get_initial_values(
         &self,
         structure: [&str; 2],
-        groups: [&HashMap<&str, usize>; 2],
+        groups: [&IndexMap<&str, usize>; 2],
     ) -> Vec<f64> {
         let y0 = self.molecules[0].get_initial_values(structure[0], groups[0]);
         let y1 = self.molecules[1].get_initial_values(structure[1], groups[1]);
@@ -37,12 +37,24 @@ impl CoMTCAMDBinary {
 
 impl MolecularRepresentation for CoMTCAMDBinary {
     fn structure_variables(&self) -> StructureVariables {
-        let mut variables = self.molecules[0].structure_variables();
-        variables.append(&mut self.molecules[1].structure_variables());
-        variables
+        self.molecules[0]
+            .structure_variables()
+            .into_iter()
+            .zip(iter::repeat(0))
+            .chain(
+                self.molecules[1]
+                    .structure_variables()
+                    .into_iter()
+                    .zip(iter::repeat(1)),
+            )
+            .map(|((name, var), i)| (format!("{name}_{i}"), var))
+            .collect()
     }
 
-    fn feature_variables(&self, index_structure_vars: &[i32]) -> HashMap<String, ExplicitVariable> {
+    fn feature_variables(
+        &self,
+        index_structure_vars: &[i32],
+    ) -> IndexMap<String, ExplicitVariable> {
         let (index_structure_vars1, index_structure_vars2) =
             index_structure_vars.split_at(self.molecules[0].structure_variables().len());
         self.molecules[0]
@@ -102,7 +114,7 @@ impl MolecularRepresentation for CoMTCAMDBinary {
 #[derive(Clone)]
 pub struct CoMTCAMDBinaryPropertyModel {
     molecules: [CoMTCAMDPropertyModel; 2],
-    k_ij: Option<HashMap<[String; 2], f64>>,
+    k_ij: Option<IndexMap<[String; 2], f64>>,
     symmetry_constraints: bool,
     viscosity: bool,
 }
@@ -138,10 +150,10 @@ impl PropertyModel for CoMTCAMDBinaryPropertyModel {
 
     fn parameter_variables(
         &self,
-        index_feature_vars: &HashMap<String, i32>,
+        index_feature_vars: &IndexMap<String, i32>,
     ) -> Vec<ExplicitVariable> {
-        let mut index_feature_vars1 = HashMap::new();
-        let mut index_feature_vars2 = HashMap::new();
+        let mut index_feature_vars1 = IndexMap::new();
+        let mut index_feature_vars2 = IndexMap::new();
         index_feature_vars.iter().for_each(|(k, &v)| {
             let (k, i) = k.split_at(k.len() - 1);
             if i == "0" {
@@ -152,7 +164,7 @@ impl PropertyModel for CoMTCAMDBinaryPropertyModel {
         });
 
         let mut variables = self.molecules[0].parameter_variables(&index_feature_vars1);
-        variables.append(&mut self.molecules[1].parameter_variables(&index_feature_vars2));
+        variables.extend(self.molecules[1].parameter_variables(&index_feature_vars2));
 
         // k_ij
         if let Some(k_ij) = &self.k_ij {

@@ -18,8 +18,7 @@ pub use molecule::{
     CoMTCAMD, CoMTCAMDBinary, CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel,
     MolecularRepresentation, SegmentAndBondCount, SuperMolecule,
 };
-// pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
-pub use property::PropertyModel;
+pub use property::{GcPcSaftPropertyModel, PropertyModel};
 pub use variables::{Constraint, ProcessVariables, StructureVariables, Variable, Variables};
 
 #[cfg(feature = "knitro_rs")]

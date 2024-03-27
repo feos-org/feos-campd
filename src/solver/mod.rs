@@ -88,7 +88,7 @@ impl<
     ) -> Result<(f64, [Vec<f64>; 3]), KnitroError> {
         let kc = Knitro::new()?;
 
-        // declare procss variables
+        // declare process variables
         let index_process_vars = self.process.variables().setup_knitro(&kc, x0)?;
 
         // add equality constraints

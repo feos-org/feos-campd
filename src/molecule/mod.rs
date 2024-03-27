@@ -1,11 +1,11 @@
 use crate::variables::{Constraint, ExplicitVariable, StructureVariables};
 #[cfg(feature = "knitro_rs")]
 use crate::OptimizationResult;
+use indexmap::IndexMap;
 use itertools::Itertools;
 #[cfg(feature = "knitro_rs")]
 use knitro_rs::{Knitro, KnitroError};
 use ndarray::{Array, Array1};
-use std::collections::HashMap;
 #[cfg(feature = "knitro_rs")]
 use std::collections::HashSet;
 
@@ -13,7 +13,7 @@ mod comt_camd;
 mod comt_camd_binary;
 mod disjunction;
 // mod mixture;
-// mod polynomial;
+mod polynomial;
 mod supermolecule;
 pub use comt_camd::{CoMTCAMD, CoMTCAMDPropertyModel};
 pub use comt_camd_binary::{CoMTCAMDBinary, CoMTCAMDBinaryPropertyModel};
@@ -23,9 +23,10 @@ pub use supermolecule::{SegmentAndBondCount, SuperMolecule};
 pub trait MolecularRepresentation {
     fn structure_variables(&self) -> StructureVariables;
 
-    fn feature_variables(&self, index_structure_vars: &[i32]) -> HashMap<String, ExplicitVariable>;
+    fn feature_variables(&self, index_structure_vars: &[i32])
+        -> IndexMap<String, ExplicitVariable>;
 
-    fn evaluate_feature_variables(&self, structure_vars: &[f64]) -> HashMap<String, f64> {
+    fn evaluate_feature_variables(&self, structure_vars: &[f64]) -> IndexMap<String, f64> {
         let index_structure_vars: Vec<_> = (0..structure_vars.len() as i32).collect();
         self.feature_variables(&index_structure_vars)
             .into_iter()
@@ -84,7 +85,7 @@ pub trait MolecularRepresentation {
         y0: Option<&[f64]>,
         solutions: &HashSet<OptimizationResult>,
         target: bool,
-    ) -> Result<(Vec<i32>, HashMap<String, i32>), KnitroError> {
+    ) -> Result<(Vec<i32>, IndexMap<String, i32>), KnitroError> {
         // define structure variables
         let index_structure_vars = self.structure_variables().setup_knitro(kc, y0, target)?;
 
@@ -93,7 +94,7 @@ pub trait MolecularRepresentation {
             .feature_variables(&index_structure_vars)
             .into_iter()
             .map(|(k, f)| Ok((k, f.setup_knitro(kc)?)))
-            .collect::<Result<HashMap<_, _>, _>>()?;
+            .collect::<Result<IndexMap<_, _>, _>>()?;
 
         // define constraints
         self.constraints(&index_structure_vars)
