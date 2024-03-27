@@ -1,22 +1,23 @@
 use std::ops::{Deref, DerefMut};
 
+use indexmap::IndexMap;
 #[cfg(feature = "knitro_rs")]
 use knitro_rs::{Knitro, KnitroError};
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 pub struct Variable<const INTEGER: bool> {
-    name: String,
     lobnd: Option<f64>,
     upbnd: Option<f64>,
     fxbnd: Option<f64>,
     init: Option<f64>,
 }
 
-pub struct Variables<const INTEGER: bool>(Vec<Variable<INTEGER>>);
+#[derive(Debug)]
+pub struct Variables<const INTEGER: bool>(IndexMap<String, Variable<INTEGER>>);
 
 impl<const INTEGER: bool> Deref for Variables<INTEGER> {
-    type Target = Vec<Variable<INTEGER>>;
+    type Target = IndexMap<String, Variable<INTEGER>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -29,15 +30,35 @@ impl<const INTEGER: bool> DerefMut for Variables<INTEGER> {
     }
 }
 
-impl<const INTEGER: bool> FromIterator<Variable<INTEGER>> for Variables<INTEGER> {
-    fn from_iter<T: IntoIterator<Item = Variable<INTEGER>>>(iter: T) -> Self {
-        Self(Vec::from_iter(iter))
+impl<const INTEGER: bool> FromIterator<(String, Variable<INTEGER>)> for Variables<INTEGER> {
+    fn from_iter<T: IntoIterator<Item = (String, Variable<INTEGER>)>>(iter: T) -> Self {
+        Self(IndexMap::from_iter(iter))
     }
 }
 
-impl<const INTEGER: bool> From<Vec<Variable<INTEGER>>> for Variables<INTEGER> {
-    fn from(value: Vec<Variable<INTEGER>>) -> Self {
-        Self(value)
+impl<const INTEGER: bool> FromIterator<Variable<INTEGER>> for Variables<INTEGER> {
+    fn from_iter<T: IntoIterator<Item = Variable<INTEGER>>>(iter: T) -> Self {
+        let varname = if INTEGER { "y" } else { "x" };
+        Self(IndexMap::from_iter(
+            iter.into_iter()
+                .enumerate()
+                .map(|(i, v)| (format!("{varname}{i}"), v)),
+        ))
+    }
+}
+
+impl<const INTEGER: bool> IntoIterator for Variables<INTEGER> {
+    type Item = <IndexMap<String, Variable<INTEGER>> as IntoIterator>::Item;
+    type IntoIter = <IndexMap<String, Variable<INTEGER>> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<const INTEGER: bool> From<Vec<(&str, Variable<INTEGER>)>> for Variables<INTEGER> {
+    fn from(value: Vec<(&str, Variable<INTEGER>)>) -> Self {
+        Self(value.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 }
 
@@ -45,15 +66,8 @@ pub type ProcessVariables = Variables<false>;
 pub type StructureVariables = Variables<true>;
 
 impl<const INTEGER: bool> Variable<INTEGER> {
-    fn new(
-        name: String,
-        lobnd: Option<f64>,
-        upbnd: Option<f64>,
-        fxbnd: Option<f64>,
-        init: Option<f64>,
-    ) -> Self {
+    fn new(lobnd: Option<f64>, upbnd: Option<f64>, fxbnd: Option<f64>, init: Option<f64>) -> Self {
         Self {
-            name,
             lobnd,
             upbnd,
             fxbnd,
@@ -68,18 +82,18 @@ impl<const INTEGER: bool> Variable<INTEGER> {
 }
 
 impl Variable<true> {
-    pub fn binary(name: String) -> Self {
-        Self::new(name, Some(0.0), Some(1.0), None, None)
+    pub fn binary() -> Self {
+        Self::new(Some(0.0), Some(1.0), None, None)
     }
 }
 
 impl Variable<false> {
-    pub fn continuous(name: String, lobnd: f64, upbnd: f64, init: f64) -> Self {
-        Self::new(name, Some(lobnd), Some(upbnd), None, Some(init))
+    pub fn continuous(lobnd: f64, upbnd: f64, init: f64) -> Self {
+        Self::new(Some(lobnd), Some(upbnd), None, Some(init))
     }
 
-    pub fn fixed(name: String, fxbnd: f64) -> Self {
-        Self::new(name, None, None, Some(fxbnd), None)
+    pub fn fixed(fxbnd: f64) -> Self {
+        Self::new(None, None, Some(fxbnd), None)
     }
 }
 
@@ -96,7 +110,7 @@ impl StructureVariables {
         let index_vars = self
             .0
             .into_iter()
-            .map(|v| v.setup_knitro(kc))
+            .map(|(n, v)| v.setup_knitro(kc, &n))
             .collect::<Result<Vec<_>, KnitroError>>()?;
 
         if !index_vars.is_empty() {
@@ -123,7 +137,7 @@ impl ProcessVariables {
         let index_vars = self
             .0
             .into_iter()
-            .map(|v| v.setup_knitro(kc))
+            .map(|(n, v)| v.setup_knitro(kc, &n))
             .collect::<Result<Vec<_>, KnitroError>>()?;
 
         if !index_vars.is_empty() {
@@ -138,9 +152,9 @@ impl ProcessVariables {
 
 impl<const INTEGER: bool> Variable<INTEGER> {
     #[cfg(feature = "knitro_rs")]
-    pub fn setup_knitro(&self, kc: &Knitro) -> Result<i32, KnitroError> {
+    pub fn setup_knitro(&self, kc: &Knitro, name: &str) -> Result<i32, KnitroError> {
         let y = kc.add_var()?;
-        kc.set_var_name(y, &self.name)?;
+        kc.set_var_name(y, name)?;
         if let Some(lobnd) = self.lobnd {
             kc.set_var_lobnd(y, lobnd)?;
         }

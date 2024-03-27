@@ -103,20 +103,24 @@ impl OrganicRankineCycle {
 impl<E: Residual + IdealGas> ProcessModel<E> for OrganicRankineCycle {
     fn variables(&self) -> ProcessVariables {
         vec![
-            Variable::continuous("mwf".into(), 0.0, 2.0, 1.0),
-            Variable::continuous(
-                "p_cond_red".into(),
-                self.min_red_pressure.ln(),
-                self.max_red_pressure.ln(),
-                self.min_red_pressure.ln(),
+            ("mwf", Variable::continuous(0.0, 2.0, 1.0)),
+            (
+                "p_cond_red",
+                Variable::continuous(
+                    self.min_red_pressure.ln(),
+                    self.max_red_pressure.ln(),
+                    self.min_red_pressure.ln(),
+                ),
             ),
-            Variable::continuous(
-                "p_cond_evap".into(),
-                self.min_red_pressure.ln(),
-                self.max_red_pressure.ln(),
-                self.max_red_pressure.ln(),
+            (
+                "p_cond_evap",
+                Variable::continuous(
+                    self.min_red_pressure.ln(),
+                    self.max_red_pressure.ln(),
+                    self.max_red_pressure.ln(),
+                ),
             ),
-            Variable::continuous("dt_sh".into(), 0.0, 2.0, 0.1),
+            ("dt_sh", Variable::continuous(0.0, 2.0, 0.1)),
         ]
         .into()
     }

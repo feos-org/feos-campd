@@ -5,8 +5,8 @@ use feos::core::parameter::{Parameter, ParameterError, PureRecord};
 use feos::core::EquationOfState;
 use feos::ideal_gas::{DipprRecord, IdealGasModel, Joback, JobackRecord};
 use feos::pcsaft::{PcSaft, PcSaftParameters, PcSaftRecord};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::iter;
@@ -50,7 +50,7 @@ impl CoMTCAMD {
         Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
     }
 
-    pub fn get_initial_values(&self, structure: &str, groups: &HashMap<&str, usize>) -> Vec<f64> {
+    pub fn get_initial_values(&self, structure: &str, groups: &IndexMap<&str, usize>) -> Vec<f64> {
         self.structures
             .iter()
             .map(|s| if s.name == structure { 1.0 } else { 0.0 })
@@ -68,16 +68,24 @@ impl MolecularRepresentation for CoMTCAMD {
     fn structure_variables(&self) -> StructureVariables {
         self.structures
             .iter()
-            .map(|s| Variable::binary(s.name.clone()))
-            .chain(
-                self.groups
-                    .iter()
-                    .flat_map(|g| iter::repeat(Variable::binary(g.name.clone())).take(g.n_max)),
-            )
+            .map(|s| (s.name.clone(), Variable::binary()))
+            .chain(self.groups.iter().flat_map(|g| {
+                (0..g.n_max).map(|i| {
+                    let name = if g.n_max == 1 {
+                        g.name.to_string()
+                    } else {
+                        format!("{}_{i}", g.name)
+                    };
+                    (name, Variable::binary())
+                })
+            }))
             .collect()
     }
 
-    fn feature_variables(&self, index_structure_vars: &[i32]) -> HashMap<String, ExplicitVariable> {
+    fn feature_variables(
+        &self,
+        index_structure_vars: &[i32],
+    ) -> IndexMap<String, ExplicitVariable> {
         let mut index = index_structure_vars[self.structures.len()];
         self.groups
             .iter()
@@ -102,7 +110,7 @@ impl MolecularRepresentation for CoMTCAMD {
 
         let (y_vars, n_vars) = index_structure_vars.split_at(self.structures.len());
 
-        let mut n: HashMap<_, _> = HashMap::new();
+        let mut n: IndexMap<_, _> = IndexMap::new();
         self.groups
             .iter()
             .flat_map(|g| std::iter::repeat(&g.name as &str).take(g.n_max))
@@ -197,7 +205,7 @@ impl MolecularRepresentation for CoMTCAMD {
 #[derive(Clone)]
 pub struct CoMTCAMDPropertyModel {
     parameter_names: Vec<String>,
-    pub parameters: Vec<HashMap<String, f64>>,
+    pub parameters: Vec<IndexMap<String, f64>>,
     parameter_offsets: Vec<f64>,
     viscosity: bool,
 }
@@ -306,7 +314,7 @@ impl PropertyModel for CoMTCAMDPropertyModel {
 
     fn parameter_variables(
         &self,
-        index_feature_vars: &HashMap<String, i32>,
+        index_feature_vars: &IndexMap<String, i32>,
     ) -> Vec<ExplicitVariable> {
         self.parameters
             .iter()
@@ -315,6 +323,7 @@ impl PropertyModel for CoMTCAMDPropertyModel {
             .map(|((pars, names), &offset)| {
                 let (vars, coefs): (Vec<_>, Vec<_>) = index_feature_vars
                     .iter()
+                    .filter(|&(name, _)| (!name.contains('-')))
                     .map(|(name, vars)| (vars, pars[name]))
                     .unzip();
                 ExplicitVariable::new(names.clone())

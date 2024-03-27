@@ -28,6 +28,7 @@ pyo3 = { version = "0.20", features = ["extension-module", "abi3", "abi3-py37"],
 numpy = { version = "0.20", optional = true }
 quantity = { version = "0.7", optional = true }
 typenum = "1.17"
+indexmap = "2.2"
 
 [dev-dependencies]
 approx = "0.5"

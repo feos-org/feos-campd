@@ -1,6 +1,6 @@
 use super::MolecularRepresentation;
 use crate::variables::{Constraint, ExplicitVariable, StructureVariables, Variable};
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M; N] {
     fn structure_variables(&self) -> StructureVariables {
@@ -11,14 +11,21 @@ impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M;
             .unwrap();
         let n_y = variables.len();
         (0..N).for_each(|i| {
-            (0..n_y).for_each(|j| variables.push(Variable::binary(format!("v{i}_{j}"))))
+            (0..n_y).for_each(|j| {
+                variables.insert(format!("v{i}_{j}"), Variable::binary());
+            });
         });
         // variables.push(Variable::binary("c0".into()).init(1.0));
-        (0..N).for_each(|i| variables.push(Variable::binary(format!("c{i}"))));
+        (0..N).for_each(|i| {
+            variables.insert(format!("c{i}"), Variable::binary());
+        });
         variables
     }
 
-    fn feature_variables(&self, index_structure_vars: &[i32]) -> HashMap<String, ExplicitVariable> {
+    fn feature_variables(
+        &self,
+        index_structure_vars: &[i32],
+    ) -> IndexMap<String, ExplicitVariable> {
         // structure variables
         let n_y = (index_structure_vars.len() - N) / (N + 1);
         let (y, mut c) = index_structure_vars.split_at(n_y);
@@ -27,7 +34,7 @@ impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M;
             c = v2;
         });
 
-        let mut feature_variables: HashMap<_, Vec<_>> = HashMap::new();
+        let mut feature_variables: IndexMap<_, Vec<_>> = IndexMap::new();
         for (i, m) in self.iter().enumerate() {
             m.feature_variables(y)
                 .into_iter()
@@ -37,21 +44,29 @@ impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M;
         feature_variables
             .into_iter()
             .map(|(k, variables)| {
-                let mut vars = Vec::new();
-                let mut coefs = Vec::new();
+                let mut lvars = Vec::new();
+                let mut lcoefs = Vec::new();
+                let mut qvars1 = Vec::new();
+                let mut qvars2 = Vec::new();
+                let mut qcoefs = Vec::new();
 
                 variables.into_iter().for_each(|(i, v)| {
-                    vars.extend(v.lvars.into_iter().map(|y| y + ((i + 1) * n_y) as i32));
-                    coefs.extend(v.lcoefs);
+                    lvars.extend(v.lvars.into_iter().map(|y| y + ((i + 1) * n_y) as i32));
+                    lcoefs.extend(v.lcoefs);
+                    qvars1.extend(v.qvars1.into_iter().map(|y| y + ((i + 1) * n_y) as i32));
+                    qvars2.extend(v.qvars2.into_iter().map(|y| y + ((i + 1) * n_y) as i32));
+                    qcoefs.extend(v.qcoefs);
                     if v.cons != 0.0 {
-                        vars.push(c[i]);
-                        coefs.push(v.cons);
+                        lvars.push(c[i]);
+                        lcoefs.push(v.cons);
                     }
                 });
 
                 (
                     k.clone(),
-                    ExplicitVariable::new(k).linear_struct(vars, coefs),
+                    ExplicitVariable::new(k)
+                        .linear_struct(lvars, lcoefs)
+                        .quadratic_struct(qvars1, qvars2, qcoefs),
                 )
             })
             .collect()
