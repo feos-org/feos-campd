@@ -2,9 +2,12 @@ use super::MolecularRepresentation;
 use crate::variables::{Constraint, ExplicitVariable, StructureVariables, Variable};
 use indexmap::IndexMap;
 
-impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M; N] {
+pub struct Disjunction<M, const N: usize>(pub [M; N]);
+
+impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for Disjunction<M, N> {
     fn structure_variables(&self) -> StructureVariables {
         let mut variables = self
+            .0
             .iter()
             .map(|s| s.structure_variables())
             .max_by_key(|v| v.len())
@@ -15,7 +18,6 @@ impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M;
                 variables.insert(format!("v{i}_{j}"), Variable::binary());
             });
         });
-        // variables.push(Variable::binary("c0".into()).init(1.0));
         (0..N).for_each(|i| {
             variables.insert(format!("c{i}"), Variable::binary());
         });
@@ -35,7 +37,7 @@ impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M;
         });
 
         let mut feature_variables: IndexMap<_, Vec<_>> = IndexMap::new();
-        for (i, m) in self.iter().enumerate() {
+        for (i, m) in self.0.iter().enumerate() {
             m.feature_variables(y)
                 .into_iter()
                 .for_each(|(k, v)| feature_variables.entry(k).or_default().push((i, v)));
@@ -115,7 +117,7 @@ impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M;
             }
         }
 
-        for (i, (m, &c)) in self.iter().zip(c).enumerate() {
+        for (i, (m, &c)) in self.0.iter().zip(c).enumerate() {
             let (used_vars, unused_vars) = y.split_at(m.structure_variables().len());
             let mut constr = m.constraints(used_vars);
 
@@ -153,9 +155,9 @@ impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for [M;
         constraints
     }
 
-    fn smiles(&self, y: &[usize]) -> Vec<String> {
+    fn smiles(&self, y: &[usize]) -> String {
         let (y, c) = y.split_at(y.len() - N);
-        for (&c, m) in c.iter().zip(self.iter()) {
+        for (&c, m) in c.iter().zip(self.0.iter()) {
             if c == 1 {
                 return m.smiles(y);
             }

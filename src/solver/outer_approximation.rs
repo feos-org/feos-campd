@@ -1,9 +1,11 @@
 use super::process_optimization::Gradients;
 use crate::process::ProcessModel;
-use crate::{MolecularRepresentation, OptimizationProblem, OptimizationResult, PropertyModel};
+use crate::{
+    Constraint, MolecularRepresentation, OptimizationProblem, OptimizationResult, PropertyModel,
+};
 use feos::core::{EosResult, IdealGas, Residual};
 use knitro_rs::{Knitro, KnitroError};
-use std::f64;
+use std::array;
 
 #[derive(Clone, Copy)]
 pub enum OuterApproximationAlgorithm {
@@ -14,13 +16,14 @@ pub enum OuterApproximationAlgorithm {
 impl<
         E: Residual + IdealGas,
         M: MolecularRepresentation,
-        R: PropertyModel<EquationOfState = E>,
+        R: PropertyModel<N, EquationOfState = E>,
         P: ProcessModel<E>,
-    > OptimizationProblem<E, M, R, P>
+        const N: usize,
+    > OptimizationProblem<E, M, R, P, N>
 {
     pub fn solve_outer_approximation(
         &mut self,
-        y_fixed: Vec<f64>,
+        y_fixed: [Vec<f64>; N],
         algorithm: OuterApproximationAlgorithm,
         options_nlp: Option<&str>,
         options_mip: Option<&str>,
@@ -28,20 +31,20 @@ impl<
         match algorithm {
             OuterApproximationAlgorithm::DuranGrossmann(update_lower_bound) => self
                 .solve_outer_approximation_duran(
-                    y_fixed.to_vec(),
+                    y_fixed,
                     update_lower_bound,
                     options_nlp,
                     options_mip,
                 ),
             OuterApproximationAlgorithm::FletcherLeyffer => {
-                self.solve_outer_approximation_fletcher(y_fixed.to_vec(), options_nlp, options_mip)
+                self.solve_outer_approximation_fletcher(y_fixed, options_nlp, options_mip)
             }
         }
     }
 
     fn solve_outer_approximation_duran(
         &mut self,
-        mut y_fixed: Vec<f64>,
+        mut y_fixed: [Vec<f64>; N],
         update_lower_bound: bool,
         options_nlp: Option<&str>,
         options_mip: Option<&str>,
@@ -77,16 +80,10 @@ impl<
                 res = r;
                 println!("{:8.5} {:.5?} {:?}", res.target, res.x, res.smiles);
             } else {
-                let y_usize: Vec<_> = y_fixed.iter().map(|y| y.round() as usize).collect();
-                let smiles = self.molecules.smiles(&y_usize);
+                let (y_usize, smiles) = self.smiles(&y_fixed);
                 println!("{:?} not converged!", smiles);
-                self.solutions.insert(OptimizationResult::new(
-                    0.0,
-                    smiles,
-                    vec![],
-                    y_usize,
-                    vec![],
-                ));
+                self.solutions
+                    .insert(OptimizationResult::new(0.0, smiles, vec![], y_usize));
                 return Ok(res);
             }
         }
@@ -97,7 +94,7 @@ impl<
 
     fn solve_outer_approximation_fletcher(
         &mut self,
-        mut y_fixed: Vec<f64>,
+        mut y_fixed: [Vec<f64>; N],
         options_nlp: Option<&str>,
         options_mip: Option<&str>,
     ) -> EosResult<OptimizationResult> {
@@ -135,7 +132,7 @@ impl<
 
     pub fn outer_approximation_ranking(
         &mut self,
-        y_fixed: &[f64],
+        y_fixed: [Vec<f64>; N],
         algorithm: OuterApproximationAlgorithm,
         runs: usize,
         options_nlp: Option<&str>,
@@ -143,7 +140,7 @@ impl<
     ) {
         for k in 0..runs {
             let result = self.solve_outer_approximation(
-                y_fixed.to_vec(),
+                y_fixed.clone(),
                 algorithm,
                 options_nlp,
                 options_mip,
@@ -179,7 +176,7 @@ impl<
         z_l: f64,
         z_u: f64,
         options: Option<&str>,
-    ) -> Result<(f64, Vec<f64>), KnitroError> {
+    ) -> Result<(f64, [Vec<f64>; N]), KnitroError> {
         // set up MILP
         let kc = Knitro::new()?;
 
@@ -191,9 +188,24 @@ impl<
         // Declare process variables
         let x = self.process.variables().setup_knitro(&kc, None)?;
 
-        let (y, n) = self
-            .molecules
-            .setup_knitro(&kc, None, &self.solutions, false)?;
+        let mut y = array::from_fn(|_| Vec::new());
+        let n = array::from_fn(|i| {
+            let (yi, f) = self.molecules[i].setup_knitro(&kc, None, false).unwrap();
+            y[i].extend(yi);
+            f
+        });
+
+        // integer cuts
+        let all_structure_vars = y.concat();
+        for solution in &self.solutions {
+            let y0 = &solution.y;
+            let coefs: Vec<_> = y0.iter().map(|&y0| 1.0 - 2.0 * y0 as f64).collect();
+            let lobnd = 1.0 - y0.iter().map(|&y0| y0 as f64).sum::<f64>();
+            Constraint::new()
+                .linear_struct(all_structure_vars.clone(), coefs)
+                .lobnd(lobnd)
+                .setup_knitro(&kc)?;
+        }
 
         let p = self.property_model.setup_knitro(&kc, &n)?;
 
@@ -238,9 +250,9 @@ impl<
         // Solve MILP
         kc.solve()?;
         let f = kc.get_obj_value()?;
-        let y = kc.get_var_primal_values(&y)?;
+        let y = y.map(|y| kc.get_var_primal_values(&y).unwrap());
 
-        Ok((f, y.to_vec()))
+        Ok((f, y))
     }
 
     fn solve_master_fletcher(
@@ -248,7 +260,7 @@ impl<
         solutions: &[(Vec<f64>, Gradients, bool)],
         ubd: f64,
         options: Option<&str>,
-    ) -> Result<(f64, Vec<f64>), KnitroError> {
+    ) -> Result<(f64, [Vec<f64>; N]), KnitroError> {
         // set up MILP
         let kc = Knitro::new()?;
 
@@ -259,9 +271,24 @@ impl<
         // Declare process variables
         let x = self.process.variables().setup_knitro(&kc, None)?;
 
-        let (y, n) = self
-            .molecules
-            .setup_knitro(&kc, None, &self.solutions, false)?;
+        let mut y = array::from_fn(|_| Vec::new());
+        let n = array::from_fn(|i| {
+            let (yi, f) = self.molecules[i].setup_knitro(&kc, None, false).unwrap();
+            y[i].extend(yi);
+            f
+        });
+
+        // integer cuts
+        let all_structure_vars = y.concat();
+        for solution in &self.solutions {
+            let y0 = &solution.y;
+            let coefs: Vec<_> = y0.iter().map(|&y0| 1.0 - 2.0 * y0 as f64).collect();
+            let lobnd = 1.0 - y0.iter().map(|&y0| y0 as f64).sum::<f64>();
+            Constraint::new()
+                .linear_struct(all_structure_vars.clone(), coefs)
+                .lobnd(lobnd)
+                .setup_knitro(&kc)?;
+        }
 
         let p = self.property_model.setup_knitro(&kc, &n)?;
 
@@ -304,8 +331,8 @@ impl<
         // Solve MILP
         kc.solve()?;
         let f = kc.get_obj_value()?;
-        let y = kc.get_var_primal_values(&y)?;
+        let y = y.map(|y| kc.get_var_primal_values(&y).unwrap());
 
-        Ok((f, y.to_vec()))
+        Ok((f, y))
     }
 }
