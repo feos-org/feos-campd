@@ -1,8 +1,6 @@
 use super::MolecularRepresentation;
 use crate::variables::{Constraint, ExplicitVariable, StructureVariables, Variable};
 use feos::core::parameter::ParameterError;
-use feos::ideal_gas::{DipprRecord, JobackRecord};
-use feos::pcsaft::PcSaftRecord;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -19,30 +17,45 @@ struct Structure {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Group {
-    pub name: String,
+struct Group {
+    name: String,
     open_bonds: usize,
     n_max: usize,
-    pub molarweight: f64,
-    pub pcsaft_parameters: PcSaftRecord,
-    pub ideal_gas_parameters: IdealGasRecord,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub enum IdealGasRecord {
-    Joback(JobackRecord),
-    Dippr(DipprRecord),
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CoMTCAMD {
     structures: Vec<Structure>,
-    pub groups: Vec<Group>,
+    groups: Vec<Group>,
 }
 
 impl CoMTCAMD {
     pub fn from_json<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError> {
         Ok(serde_json::from_reader(BufReader::new(File::open(file)?))?)
+    }
+
+    pub fn from_molecules(molecules: Vec<String>) -> Self {
+        let groups = molecules
+            .into_iter()
+            .map(|name| Group {
+                name,
+                open_bonds: 0,
+                n_max: 1,
+            })
+            .collect();
+        let structures = vec![Structure {
+            name: "molecule".into(),
+            groups: None,
+            count: 1,
+            rings: 0,
+        }];
+        Self { structures, groups }
+    }
+
+    pub fn from_json_molecules<FP: AsRef<Path>>(file: FP) -> Result<Self, ParameterError> {
+        Ok(Self::from_molecules(serde_json::from_reader(
+            BufReader::new(File::open(file)?),
+        )?))
     }
 
     pub fn get_initial_values(&self, structure: &str, groups: &IndexMap<&str, usize>) -> Vec<f64> {
@@ -56,6 +69,12 @@ impl CoMTCAMD {
                     .chain(std::iter::repeat(0.0).take(g.n_max - count))
             }))
             .collect()
+    }
+
+    pub fn get_initial_values_molecules(&self, molecule: &str) -> Vec<f64> {
+        let mut groups = IndexMap::new();
+        groups.insert(molecule, 1);
+        self.get_initial_values("molecule", &groups)
     }
 }
 

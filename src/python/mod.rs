@@ -1,29 +1,25 @@
+use crate::GcPcSaftPropertyModel;
 use crate::{
-    CoMTCAMD, CoMTCAMDBinary, OptimizationProblem, OptimizationResult, OuterApproximationAlgorithm,
+    CoMTCAMD, OptimizationProblem, OptimizationResult, OuterApproximationAlgorithm,
+    PcSaftPropertyModel,
 };
-use crate::{MolecularRepresentation, PropertyModel};
-use feos::core::EquationOfState;
-use feos::ideal_gas::IdealGasModel;
-use feos::pcsaft::PcSaft;
 use feos_core::EosError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::wrap_pymodule;
 use quantity::python::quantity as quantity_module;
 use std::collections::HashMap;
 
-mod comt_camd;
-mod dippr;
 mod eos;
-mod joback;
-mod pcsaft;
+mod molecule;
 mod process;
+mod property;
 
-use comt_camd::{PyCoMTCAMD, PyCoMTCAMDBinary};
-use dippr::dippr as dippr_module;
-use eos::{eos as eos_module, PyEquationOfState};
-use joback::joback as joback_module;
-use pcsaft::pcsaft as pcsaft_module;
+use eos::gc_pcsaft::{gc_pcsaft as gc_pcsaft_module, PyGcPcSaft};
+use eos::pcsaft::{pcsaft as pcsaft_module, PyPcSaft};
+use molecule::{PyCoMTCAMD, PySuperMolecule, SuperMolecules};
 use process::PyProcessModel;
+use property::{PyGcPcSaftPropertyModel, PyPcSaftPropertyModel};
 
 #[pyclass(name = "OuterApproximationAlgorithm")]
 #[derive(Clone, Copy)]
@@ -45,126 +41,271 @@ impl PyOuterApproximationAlgorithm {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
-enum OptimizationProblems {
-    Pure(
-        OptimizationProblem<
-            EquationOfState<IdealGasModel, PcSaft>,
-            CoMTCAMD,
-            CoMTCAMD,
-            PyProcessModel,
-        >,
-    ),
-    Binary(
-        OptimizationProblem<
-            EquationOfState<IdealGasModel, PcSaft>,
-            CoMTCAMDBinary,
-            CoMTCAMDBinary,
-            PyProcessModel,
-        >,
-    ),
-}
-
 #[pyclass(name = "OptimizationProblem")]
-pub struct PyOptimizationProblem(OptimizationProblems);
+pub struct PyOptimizationProblem;
 
 #[pymethods]
 impl PyOptimizationProblem {
     #[staticmethod]
-    fn pure(comt_camd: PyCoMTCAMD, process: PyProcessModel) -> Self {
-        Self(OptimizationProblems::Pure(OptimizationProblem::new(
-            comt_camd.0.clone(),
-            comt_camd.0,
-            process,
-        )))
-    }
-
-    #[staticmethod]
-    fn binary(comt_camd: PyCoMTCAMDBinary, process: PyProcessModel) -> Self {
-        Self(OptimizationProblems::Binary(OptimizationProblem::new(
-            comt_camd.0.clone(),
-            comt_camd.0,
-            process,
-        )))
-    }
-
-    fn solve_fixed(
-        &mut self,
-        y_fixed: Vec<f64>,
-        options: Option<&str>,
-    ) -> PyResult<PyOptimizationResult> {
-        Ok(PyOptimizationResult(match &mut self.0 {
-            OptimizationProblems::Pure(p) => p
-                .solve_fixed(&y_fixed, options)
-                .map_err(|_| EosError::NotConverged("Process optimization".into()))?,
-            OptimizationProblems::Binary(b) => b
-                .solve_fixed(&y_fixed, options)
-                .map_err(|_| EosError::NotConverged("Process optimization".into()))?,
-        }))
-    }
-
-    fn solve_outer_approximation(
-        &mut self,
-        y_fixed: Vec<f64>,
-        algorithm: PyOuterApproximationAlgorithm,
-        options_nlp: Option<&str>,
-        options_mip: Option<&str>,
-    ) -> PyResult<PyOptimizationResult> {
-        Ok(PyOptimizationResult(match &mut self.0 {
-            OptimizationProblems::Pure(p) => {
-                p.solve_outer_approximation(y_fixed, algorithm.0, options_nlp, options_mip)
-            }
-            OptimizationProblems::Binary(b) => {
-                b.solve_outer_approximation(y_fixed, algorithm.0, options_nlp, options_mip)
-            }
-        }?))
-    }
-
-    fn outer_approximation_ranking(
-        &mut self,
-        y_fixed: Vec<f64>,
-        algorithm: PyOuterApproximationAlgorithm,
-        runs: usize,
-        options_nlp: Option<&str>,
-        options_mip: Option<&str>,
-    ) {
-        match &mut self.0 {
-            OptimizationProblems::Pure(p) => {
-                p.outer_approximation_ranking(&y_fixed, algorithm.0, runs, options_nlp, options_mip)
-            }
-            OptimizationProblems::Binary(b) => {
-                b.outer_approximation_ranking(&y_fixed, algorithm.0, runs, options_nlp, options_mip)
-            }
+    fn pure(
+        py: Python,
+        molecule: &PyAny,
+        property: &PyAny,
+        process: PyProcessModel,
+    ) -> PyResult<PyObject> {
+        if let (Ok(comt_camd), Ok(pcsaft)) = (
+            molecule.extract::<PyCoMTCAMD>(),
+            property.extract::<PyPcSaftPropertyModel>(),
+        ) {
+            Ok(
+                PyOptimizationProblem1(OptimizationProblem::new([comt_camd.0], pcsaft.0, process))
+                    .into_py(py),
+            )
+        } else if let (Ok(supermolecule), Ok(pcsaft)) = (
+            molecule.extract::<PySuperMolecule>(),
+            property.extract::<PyPcSaftPropertyModel>(),
+        ) {
+            Ok(PyOptimizationProblem2(OptimizationProblem::new(
+                [supermolecule.0],
+                pcsaft.0,
+                process,
+            ))
+            .into_py(py))
+        } else if let (Ok(supermolecule), Ok(gc_pcsaft)) = (
+            molecule.extract::<PySuperMolecule>(),
+            property.extract::<PyGcPcSaftPropertyModel>(),
+        ) {
+            Ok(PyOptimizationProblem3(OptimizationProblem::new(
+                [supermolecule.0],
+                gc_pcsaft.0,
+                process,
+            ))
+            .into_py(py))
+        } else {
+            Err(PyValueError::new_err("Ivalid arguments!"))
         }
     }
 
-    #[getter]
-    fn get_solutions(&self) -> Vec<PyOptimizationResult> {
-        let mut solutions: Vec<_> = match &self.0 {
-            OptimizationProblems::Pure(p) => p.solutions.iter().collect(),
-            OptimizationProblems::Binary(b) => b.solutions.iter().collect(),
-        };
-        solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
-        solutions
-            .into_iter()
-            .map(|result| PyOptimizationResult(result.clone()))
-            .collect()
-    }
-
-    fn build_eos(&self, result: PyOptimizationResult) -> PyResult<PyEquationOfState> {
-        let y: Vec<_> = result.0.y.into_iter().map(|y| y as f64).collect();
-        Ok(PyEquationOfState(match &self.0 {
-            OptimizationProblems::Pure(p) => {
-                let cr = p.molecules.build(&y, &result.0.p);
-                p.property_model.build_eos(cr)?
-            }
-            OptimizationProblems::Binary(b) => {
-                let cr = b.molecules.build(&y, &result.0.p);
-                b.property_model.build_eos(cr)?
-            }
-        }))
+    #[staticmethod]
+    fn binary(
+        py: Python,
+        molecule: &PyAny,
+        property: &PyAny,
+        process: PyProcessModel,
+    ) -> PyResult<PyObject> {
+        if let (Ok([m1, m2]), Ok(pcsaft)) = (
+            molecule.extract::<[PyCoMTCAMD; 2]>(),
+            property.extract::<PyPcSaftPropertyModel>(),
+        ) {
+            Ok(
+                PyOptimizationProblem4(OptimizationProblem::new([m1.0, m2.0], pcsaft.0, process))
+                    .into_py(py),
+            )
+        } else if let (Ok([m1, m2]), Ok(pcsaft)) = (
+            molecule.extract::<[PySuperMolecule; 2]>(),
+            property.extract::<PyPcSaftPropertyModel>(),
+        ) {
+            Ok(
+                PyOptimizationProblem5(OptimizationProblem::new([m1.0, m2.0], pcsaft.0, process))
+                    .into_py(py),
+            )
+        } else if let (Ok([m1, m2]), Ok(gc_pcsaft)) = (
+            molecule.extract::<[PySuperMolecule; 2]>(),
+            property.extract::<PyGcPcSaftPropertyModel>(),
+        ) {
+            Ok(
+                PyOptimizationProblem6(OptimizationProblem::new(
+                    [m1.0, m2.0],
+                    gc_pcsaft.0,
+                    process,
+                ))
+                .into_py(py),
+            )
+        } else {
+            Err(PyValueError::new_err("Ivalid arguments!"))
+        }
     }
 }
+
+macro_rules! impl_optimization_problem {
+    ($py_optimization_problem:ident, $molecule:ident, $property_model:ident, $py_eos:ident, 1) => {
+        #[pyclass(name = "OptimizationProblem")]
+        pub struct $py_optimization_problem(
+            OptimizationProblem<$molecule, $property_model, PyProcessModel, 1>,
+        );
+
+        #[pymethods]
+        impl $py_optimization_problem {
+            fn solve_fixed(
+                &mut self,
+                y_fixed: Vec<f64>,
+                options: Option<&str>,
+            ) -> PyResult<PyOptimizationResult> {
+                Ok(PyOptimizationResult(
+                    self.0
+                        .solve_fixed(&[y_fixed], options)
+                        .map_err(|_| EosError::NotConverged("Process optimization".into()))?,
+                ))
+            }
+
+            fn solve_outer_approximation(
+                &mut self,
+                y_fixed: Vec<f64>,
+                algorithm: PyOuterApproximationAlgorithm,
+                options_nlp: Option<&str>,
+                options_mip: Option<&str>,
+            ) -> PyResult<PyOptimizationResult> {
+                Ok(PyOptimizationResult(self.0.solve_outer_approximation(
+                    [y_fixed],
+                    algorithm.0,
+                    options_nlp,
+                    options_mip,
+                )?))
+            }
+
+            fn outer_approximation_ranking(
+                &mut self,
+                y_fixed: Vec<f64>,
+                algorithm: PyOuterApproximationAlgorithm,
+                runs: usize,
+                options_nlp: Option<&str>,
+                options_mip: Option<&str>,
+            ) {
+                self.0.outer_approximation_ranking(
+                    [y_fixed],
+                    algorithm.0,
+                    runs,
+                    options_nlp,
+                    options_mip,
+                )
+            }
+
+            #[getter]
+            fn get_solutions(&self) -> Vec<PyOptimizationResult> {
+                let mut solutions: Vec<_> = self.0.solutions.iter().collect();
+                solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
+                solutions
+                    .into_iter()
+                    .map(|result| PyOptimizationResult(result.clone()))
+                    .collect()
+            }
+
+            fn build_eos(&self, result: PyOptimizationResult, py: Python) -> PyObject {
+                $py_eos(self.0.build_eos(&result.0)).into_py(py)
+            }
+        }
+    };
+    ($py_optimization_problem:ident, $molecule:ident, $property_model:ident, $py_eos:ident, 2) => {
+        #[pyclass(name = "OptimizationProblem")]
+        pub struct $py_optimization_problem(
+            OptimizationProblem<$molecule, $property_model, PyProcessModel, 2>,
+        );
+
+        #[pymethods]
+        impl $py_optimization_problem {
+            fn solve_fixed(
+                &mut self,
+                y_fixed: [Vec<f64>; 2],
+                options: Option<&str>,
+            ) -> PyResult<PyOptimizationResult> {
+                Ok(PyOptimizationResult(
+                    self.0
+                        .solve_fixed(&y_fixed, options)
+                        .map_err(|_| EosError::NotConverged("Process optimization".into()))?,
+                ))
+            }
+
+            fn solve_outer_approximation(
+                &mut self,
+                y_fixed: [Vec<f64>; 2],
+                algorithm: PyOuterApproximationAlgorithm,
+                options_nlp: Option<&str>,
+                options_mip: Option<&str>,
+            ) -> PyResult<PyOptimizationResult> {
+                Ok(PyOptimizationResult(self.0.solve_outer_approximation(
+                    y_fixed,
+                    algorithm.0,
+                    options_nlp,
+                    options_mip,
+                )?))
+            }
+
+            fn outer_approximation_ranking(
+                &mut self,
+                y_fixed: [Vec<f64>; 2],
+                algorithm: PyOuterApproximationAlgorithm,
+                runs: usize,
+                options_nlp: Option<&str>,
+                options_mip: Option<&str>,
+            ) {
+                self.0.outer_approximation_ranking(
+                    y_fixed,
+                    algorithm.0,
+                    runs,
+                    options_nlp,
+                    options_mip,
+                )
+            }
+
+            #[getter]
+            fn get_solutions(&self) -> Vec<PyOptimizationResult> {
+                let mut solutions: Vec<_> = self.0.solutions.iter().collect();
+                solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
+                solutions
+                    .into_iter()
+                    .map(|result| PyOptimizationResult(result.clone()))
+                    .collect()
+            }
+
+            fn build_eos(&self, result: PyOptimizationResult, py: Python) -> PyObject {
+                $py_eos(self.0.build_eos(&result.0)).into_py(py)
+            }
+        }
+    };
+}
+
+impl_optimization_problem!(
+    PyOptimizationProblem1,
+    CoMTCAMD,
+    PcSaftPropertyModel,
+    PyPcSaft,
+    1
+);
+impl_optimization_problem!(
+    PyOptimizationProblem2,
+    SuperMolecules,
+    PcSaftPropertyModel,
+    PyPcSaft,
+    1
+);
+impl_optimization_problem!(
+    PyOptimizationProblem3,
+    SuperMolecules,
+    GcPcSaftPropertyModel,
+    PyGcPcSaft,
+    1
+);
+impl_optimization_problem!(
+    PyOptimizationProblem4,
+    CoMTCAMD,
+    PcSaftPropertyModel,
+    PyPcSaft,
+    2
+);
+impl_optimization_problem!(
+    PyOptimizationProblem5,
+    SuperMolecules,
+    PcSaftPropertyModel,
+    PyPcSaft,
+    2
+);
+impl_optimization_problem!(
+    PyOptimizationProblem6,
+    SuperMolecules,
+    GcPcSaftPropertyModel,
+    PyGcPcSaft,
+    2
+);
 
 #[pyclass(name = "PyOptimizationResult")]
 #[derive(Clone)]
@@ -185,11 +326,6 @@ impl PyOptimizationResult {
     #[getter]
     fn get_y(&self) -> Vec<usize> {
         self.0.y.clone()
-    }
-
-    #[getter]
-    fn get_p(&self) -> Vec<f64> {
-        self.0.p.clone()
     }
 
     #[getter]
@@ -217,22 +353,20 @@ impl PyOptimizationResult {
 pub fn feos_campd(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_wrapped(wrap_pymodule!(quantity_module))?;
-    m.add_wrapped(wrap_pymodule!(eos_module))?;
-    m.add_wrapped(wrap_pymodule!(joback_module))?;
-    m.add_wrapped(wrap_pymodule!(dippr_module))?;
     m.add_wrapped(wrap_pymodule!(pcsaft_module))?;
+    m.add_wrapped(wrap_pymodule!(gc_pcsaft_module))?;
 
     m.add_class::<PyProcessModel>()?;
     m.add_class::<PyCoMTCAMD>()?;
-    m.add_class::<PyCoMTCAMDBinary>()?;
+    m.add_class::<PySuperMolecule>()?;
+    m.add_class::<PyPcSaftPropertyModel>()?;
+    m.add_class::<PyGcPcSaftPropertyModel>()?;
     m.add_class::<PyOptimizationProblem>()?;
     m.add_class::<PyOuterApproximationAlgorithm>()?;
 
     set_path(py, m, "feos_campd.si", "quantity")?;
-    set_path(py, m, "feos_campd.eos", "eos")?;
-    set_path(py, m, "feos_campd.joback", "joback")?;
-    set_path(py, m, "feos_campd.dippr", "dippr")?;
     set_path(py, m, "feos_campd.pcsaft", "pcsaft")?;
+    set_path(py, m, "feos_campd.gc_pcsaft", "gc_pcsaft")?;
     Ok(())
 }
 

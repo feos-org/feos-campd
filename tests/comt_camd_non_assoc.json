@@ -62,408 +62,102 @@
         {
             "name": "CH3",
             "open_bonds": 1,
-            "n_max": 10,
-            "molarweight": 15.0345,
-            "pcsaft_parameters": {
-                "m": 0.61198,
-                "sigma": 3.7202,
-                "epsilon_k": 229.9
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 19.5,
-                    "b": -0.00808,
-                    "c": 0.000153,
-                    "d": -9.67e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 10
         },
         {
             "name": "CH2",
             "open_bonds": 2,
-            "n_max": 10,
-            "molarweight": 14.02658,
-            "pcsaft_parameters": {
-                "m": 0.45606,
-                "sigma": 3.89,
-                "epsilon_k": 239.01
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -0.909,
-                    "b": 0.095,
-                    "c": -5.44e-05,
-                    "d": 1.19e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 10
         },
         {
             "name": ">CH",
             "open_bonds": 3,
-            "n_max": 10,
-            "molarweight": 13.01854,
-            "pcsaft_parameters": {
-                "m": 0.14304,
-                "sigma": 4.8597,
-                "epsilon_k": 347.64
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -23.0,
-                    "b": 0.204,
-                    "c": -0.000265,
-                    "d": 1.2e-07,
-                    "e": 0.0
-                }
-            }
+            "n_max": 10
         },
         {
             "name": ">C<",
             "open_bonds": 4,
-            "n_max": 10,
-            "molarweight": 12.0107,
-            "pcsaft_parameters": {
-                "m": -0.66997,
-                "sigma": -1.7878,
-                "epsilon_k": 107.68
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -66.2,
-                    "b": 0.427,
-                    "c": -0.000641,
-                    "d": 3.01e-07,
-                    "e": 0.0
-                }
-            }
+            "n_max": 10
         },
         {
             "name": "=CH2",
             "open_bonds": 1,
-            "n_max": 1,
-            "molarweight": 14.02658,
-            "pcsaft_parameters": {
-                "m": 0.36939,
-                "sigma": 4.0264,
-                "epsilon_k": 289.49
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 23.6,
-                    "b": -0.0381,
-                    "c": 0.000172,
-                    "d": -1.03e-07,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         },
         {
             "name": "=CH",
             "open_bonds": 2,
-            "n_max": 2,
-            "molarweight": 13.01854,
-            "pcsaft_parameters": {
-                "m": 0.56361,
-                "sigma": 3.5519,
-                "epsilon_k": 216.69
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -8.0,
-                    "b": 0.105,
-                    "c": -9.63e-05,
-                    "d": 3.56e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 2
         },
         {
             "name": "=C<",
             "open_bonds": 3,
-            "n_max": 2,
-            "molarweight": 12.0107,
-            "pcsaft_parameters": {
-                "m": 0.86367,
-                "sigma": 3.1815,
-                "epsilon_k": 156.31
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -28.0,
-                    "b": 0.208,
-                    "c": -0.000306,
-                    "d": 1.46e-07,
-                    "e": 0.0
-                }
-            }
+            "n_max": 2
         },
         {
             "name": "C≡CH",
             "open_bonds": 1,
-            "n_max": 1,
-            "molarweight": 25.02924,
-            "pcsaft_parameters": {
-                "m": 1.3279,
-                "sigma": 2.9421,
-                "epsilon_k": 223.05
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 32.37,
-                    "b": -0.006999999999999999,
-                    "c": 0.00010267,
-                    "d": -6.641e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         },
         {
             "name": "CH2_hex",
             "open_bonds": 2,
-            "n_max": 6,
-            "molarweight": 14.02658,
-            "pcsaft_parameters": {
-                "m": 0.39496,
-                "sigma": 3.9126,
-                "epsilon_k": 289.03
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -6.03,
-                    "b": 0.0854,
-                    "c": -8e-06,
-                    "d": -1.8e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 6
         },
         {
             "name": "CH_hex",
             "open_bonds": 3,
-            "n_max": 6,
-            "molarweight": 13.01854,
-            "pcsaft_parameters": {
-                "m": 0.0288,
-                "sigma": 8.9779,
-                "epsilon_k": 1306.7
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -20.5,
-                    "b": 0.162,
-                    "c": -0.00016,
-                    "d": 6.24e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 6
         },
         {
             "name": "CH2_pent",
             "open_bonds": 2,
-            "n_max": 5,
-            "molarweight": 14.02658,
-            "pcsaft_parameters": {
-                "m": 0.46742,
-                "sigma": 3.7272,
-                "epsilon_k": 267.16
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -6.03,
-                    "b": 0.0854,
-                    "c": -8e-06,
-                    "d": -1.8e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 5
         },
         {
             "name": "CH_pent",
             "open_bonds": 3,
-            "n_max": 5,
-            "molarweight": 13.01854,
-            "pcsaft_parameters": {
-                "m": 0.03314,
-                "sigma": 7.719,
-                "epsilon_k": 1297.7
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -20.5,
-                    "b": 0.162,
-                    "c": -0.00016,
-                    "d": 6.24e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 5
         },
         {
             "name": "CH_arom",
             "open_bonds": 2,
-            "n_max": 6,
-            "molarweight": 13.01854,
-            "pcsaft_parameters": {
-                "m": 0.42335,
-                "sigma": 3.727,
-                "epsilon_k": 274.41
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -2.14,
-                    "b": 0.0574,
-                    "c": -1.64e-06,
-                    "d": -1.59e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 6
         },
         {
             "name": "C_arom",
             "open_bonds": 3,
-            "n_max": 6,
-            "molarweight": 12.0107,
-            "pcsaft_parameters": {
-                "m": 0.15371,
-                "sigma": 3.9622,
-                "epsilon_k": 527.2
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": -8.25,
-                    "b": 0.101,
-                    "c": -0.000142,
-                    "d": 6.78e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 6
         },
         {
             "name": "CH=O",
             "open_bonds": 1,
-            "n_max": 1,
-            "molarweight": 29.01754,
-            "pcsaft_parameters": {
-                "m": 1.5774,
-                "sigma": 2.8035,
-                "epsilon_k": 242.99,
-                "mu": 2.4556
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 30.9,
-                    "b": -0.0336,
-                    "c": 0.00016,
-                    "d": -9.88e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         },
         {
             "name": ">C=O",
             "open_bonds": 2,
-            "n_max": 1,
-            "molarweight": 28.0097,
-            "pcsaft_parameters": {
-                "m": 1.223,
-                "sigma": 2.8124,
-                "epsilon_k": 249.04,
-                "mu": 3.2432
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 6.45,
-                    "b": 0.067,
-                    "c": -3.57e-05,
-                    "d": 2.86e-09,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         },
         {
             "name": "OCH3",
             "open_bonds": 1,
-            "n_max": 1,
-            "molarweight": 31.03322,
-            "pcsaft_parameters": {
-                "m": 1.6539,
-                "sigma": 3.0697,
-                "epsilon_k": 196.05,
-                "mu": 1.3866
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 45.0,
-                    "b": -0.07128000000000001,
-                    "c": 0.000264,
-                    "d": -1.515e-07,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         },
         {
             "name": "OCH2",
             "open_bonds": 2,
-            "n_max": 1,
-            "molarweight": 30.02538,
-            "pcsaft_parameters": {
-                "m": 1.1349,
-                "sigma": 3.2037,
-                "epsilon_k": 187.13,
-                "mu": 2.744
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 24.591,
-                    "b": 0.031799999999999995,
-                    "c": 5.66e-05,
-                    "d": -4.29e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         },
         {
             "name": "HCOO",
             "open_bonds": 1,
-            "n_max": 1,
-            "molarweight": 45.01654,
-            "pcsaft_parameters": {
-                "m": 1.7525,
-                "sigma": 2.9043,
-                "epsilon_k": 229.63,
-                "mu": 2.7916
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 24.1,
-                    "b": 0.0427,
-                    "c": 8.04e-05,
-                    "d": -6.87e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         },
         {
             "name": "COO",
             "open_bonds": 2,
-            "n_max": 1,
-            "molarweight": 44.0087,
-            "pcsaft_parameters": {
-                "m": 1.5063,
-                "sigma": 2.8166,
-                "epsilon_k": 222.52,
-                "mu": 3.1652
-            },
-            "ideal_gas_parameters": {
-                "Joback": {
-                    "a": 24.5,
-                    "b": 0.0402,
-                    "c": 4.02e-05,
-                    "d": -4.52e-08,
-                    "e": 0.0
-                }
-            }
+            "n_max": 1
         }
     ]
 }

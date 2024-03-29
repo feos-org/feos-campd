@@ -9,9 +9,9 @@ mod comt_camd;
 mod disjunction;
 mod polynomial;
 mod supermolecule;
-pub use comt_camd::{CoMTCAMD, IdealGasRecord};
+pub use comt_camd::CoMTCAMD;
 pub use disjunction::Disjunction;
-pub use supermolecule::{SegmentAndBondCount, SuperMolecule};
+pub use supermolecule::SuperMolecule;
 
 /// A generic molecular representation to be used in an [OptimizationProblem](super::OptimizationProblem).
 pub trait MolecularRepresentation {

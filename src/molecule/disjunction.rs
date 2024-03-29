@@ -2,6 +2,7 @@ use super::MolecularRepresentation;
 use crate::variables::{Constraint, ExplicitVariable, StructureVariables, Variable};
 use indexmap::IndexMap;
 
+#[derive(Clone)]
 pub struct Disjunction<M, const N: usize>(pub [M; N]);
 
 impl<M: MolecularRepresentation, const N: usize> MolecularRepresentation for Disjunction<M, N> {

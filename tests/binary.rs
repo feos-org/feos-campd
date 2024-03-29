@@ -1,39 +1,43 @@
 #![cfg(feature = "knitro_rs")]
-use feos::core::parameter::{BinaryRecord, Parameter, PureRecord};
+use anyhow::Result;
+use feos::core::parameter::{IdentifierOption, Parameter, PureRecord};
 use feos::core::si::{KELVIN, MOL};
 use feos::core::{EosResult, Residual, State};
 use feos::pcsaft::{PcSaft, PcSaftBinaryRecord, PcSaftParameters, PcSaftRecord};
 use feos_campd::process::ProcessModel;
 use feos_campd::{
-    CoMTCAMD, CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel, OptimizationProblem,
-    OuterApproximationAlgorithm, ProcessVariables, Variable,
+    CoMTCAMD, OptimizationProblem, OuterApproximationAlgorithm, PcSaftPropertyModel,
+    ProcessVariables, Variable,
 };
 use indexmap::IndexMap;
-use knitro_rs::KnitroError;
 use ndarray::arr1;
 use std::sync::Arc;
 
 #[test]
-pub fn test_binary() -> Result<(), KnitroError> {
-    let camd = CoMTCAMD::from_json("tests/mixture_test_comps.json").unwrap();
-    let pcsaft = CoMTCAMDPropertyModel::from_json("tests/mixture_test_comps.json").unwrap();
+pub fn test_binary() -> Result<()> {
+    let camd = CoMTCAMD::from_molecules(vec![
+        "pentane".into(),
+        "benzene".into(),
+        "diethyl ether".into(),
+    ]);
+    let pcsaft = PcSaftPropertyModel::from_json_molecules(
+        "tests/gross2001.json",
+        "tests/poling2000.json",
+        Some("tests/mixture_test_comps_binary.json"),
+        IdentifierOption::Name,
+        true,
+    )?;
     let y0 = camd.get_initial_values("molecule", &IndexMap::from([("pentane", 1)]));
     let y1 = camd.get_initial_values("molecule", &IndexMap::from([("diethyl ether", 1)]));
     let y = [y0, y1];
-    let k_ij: Vec<BinaryRecord<String, f64>> =
-        BinaryRecord::from_json("tests/mixture_test_comps_binary.json").unwrap();
     let camd_binary = [camd.clone(), camd];
-    let pcsaft_binary =
-        CoMTCAMDBinaryPropertyModel::new([pcsaft.clone(), pcsaft], Some(k_ij), true, false);
-    let mut problem = OptimizationProblem::new(camd_binary, pcsaft_binary, CriticalPointModel);
-    let result = problem
-        .solve_outer_approximation(
-            y,
-            OuterApproximationAlgorithm::DuranGrossmann(true),
-            Some("tests/options_target.opt"),
-            Some("tests/options_MILP.opt"),
-        )
-        .unwrap();
+    let mut problem = OptimizationProblem::new(camd_binary, pcsaft, CriticalPointModel);
+    let result = problem.solve_outer_approximation(
+        y,
+        OuterApproximationAlgorithm::DuranGrossmann(true),
+        Some("tests/options_target.opt"),
+        Some("tests/options_MILP.opt"),
+    )?;
     println!("{} {}", result.target, result.x[0]);
 
     let pentane = PureRecord::new(
@@ -57,10 +61,9 @@ pub fn test_binary() -> Result<(), KnitroError> {
             None,
             None,
         )),
-    )
-    .unwrap();
+    )?;
     let eos = Arc::new(PcSaft::new(Arc::new(params)));
-    let (t, _, _) = CriticalPointModel.solve(&eos, &result.x).unwrap();
+    let (t, _, _) = CriticalPointModel.solve(&eos, &result.x)?;
     println!("{t}");
 
     assert_eq!(t, result.target);

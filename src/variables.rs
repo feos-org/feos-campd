@@ -300,20 +300,20 @@ impl ExplicitVariable {
         kc.add_con_linear_term(c, y, -1.0)?;
         kc.set_con_eqbnd(c, -self.cons)?;
 
-        let lvars = kc.get_var_primal_values(&self.lvars)?;
-        let qvars1 = kc.get_var_primal_values(&self.qvars1)?;
-        let qvars2 = kc.get_var_primal_values(&self.qvars2)?;
+        let vars = kc.get_var_primal_values_all()?;
         let y0 = self.cons
-            + lvars
-                .into_iter()
+            + self
+                .lvars
+                .iter()
                 .zip(&self.lcoefs)
-                .map(|(v, c)| v * c)
+                .map(|(&v, c)| vars[v as usize] * c)
                 .sum::<f64>()
-            + qvars1
-                .into_iter()
-                .zip(qvars2)
+            + self
+                .qvars1
+                .iter()
+                .zip(&self.qvars2)
                 .zip(&self.qcoefs)
-                .map(|((v1, v2), c)| v1 * v2 * c)
+                .map(|((&v1, &v2), c)| vars[v1 as usize] * vars[v2 as usize] * c)
                 .sum::<f64>();
         kc.set_var_primal_init_value(y, y0)?;
         kc.set_var_name(y, &self.name)?;
