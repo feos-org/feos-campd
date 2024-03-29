@@ -1,9 +1,7 @@
-use std::array;
-
 use crate::process::ProcessModel;
 use crate::*;
-use feos::core::{IdealGas, Residual};
 use knitro_rs::*;
+use std::array;
 
 struct ProcessCallback<'a, R, P, const N: usize> {
     parameters: Option<&'a [f64]>,
@@ -12,10 +10,7 @@ struct ProcessCallback<'a, R, P, const N: usize> {
 }
 
 impl<'a, R, P, const N: usize> ProcessCallback<'a, R, P, N> {
-    fn new<E, M>(
-        problem: &'a OptimizationProblem<E, M, R, P, N>,
-        parameters: Option<&'a [f64]>,
-    ) -> Self {
+    fn new<M>(problem: &'a OptimizationProblem<M, R, P, N>, parameters: Option<&'a [f64]>) -> Self {
         Self {
             parameters,
             property_model: &problem.property_model,
@@ -24,13 +19,8 @@ impl<'a, R, P, const N: usize> ProcessCallback<'a, R, P, N> {
     }
 }
 
-impl<
-        'a,
-        E: Residual + IdealGas,
-        R: PropertyModel<N, EquationOfState = E>,
-        P: ProcessModel<E>,
-        const N: usize,
-    > EvalCallback for ProcessCallback<'a, R, P, N>
+impl<'a, R: PropertyModel<N>, P: ProcessModel<R::EquationOfState>, const N: usize> EvalCallback
+    for ProcessCallback<'a, R, P, N>
 {
     fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32 {
         let (x, p) = x.split_at(self.process.variables().len());
@@ -57,12 +47,11 @@ impl<
 }
 
 impl<
-        E: Residual + IdealGas,
         M: MolecularRepresentation,
-        R: PropertyModel<N, EquationOfState = E>,
-        P: ProcessModel<E>,
+        R: PropertyModel<N>,
+        P: ProcessModel<R::EquationOfState>,
         const N: usize,
-    > OptimizationProblem<E, M, R, P, N>
+    > OptimizationProblem<M, R, P, N>
 {
     pub fn solve_fixed(
         &mut self,

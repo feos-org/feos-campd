@@ -1,17 +1,35 @@
 [
   {
-    "id1": "pentane",
-    "id2": "benzene",
-    "model_record": -0.18371738189391876
+    "id1": {
+      "name": "pentane"
+    },
+    "id2": {
+      "name": "benzene"
+    },
+    "model_record": {
+      "k_ij": -0.18371738189391876
+    }
   },
   {
-    "id1": "pentane",
-    "id2": "diethyl ether",
-    "model_record": 0.06723310157310154
+    "id1": {
+      "name": "pentane"
+    },
+    "id2": {
+      "name": "diethyl ether"
+    },
+    "model_record": {
+      "k_ij": 0.06723310157310154
+    }
   },
   {
-    "id1": "benzene",
-    "id2": "diethylether",
-    "model_record": 0.1511413084403949
+    "id1": {
+      "name": "benzene"
+    },
+    "id2": {
+      "name": "diethylether"
+    },
+    "model_record": {
+      "k_ij": 0.1511413084403949
+    }
   }
 ]

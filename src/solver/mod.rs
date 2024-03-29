@@ -16,8 +16,8 @@ struct OptimizationProblemCallback<'a, R, P, const N: usize> {
 }
 
 impl<'a, R, P, const N: usize> OptimizationProblemCallback<'a, R, P, N> {
-    fn new<E, M>(
-        problem: &'a OptimizationProblem<E, M, R, P, N>,
+    fn new<M>(
+        problem: &'a OptimizationProblem<M, R, P, N>,
         process_vars: usize,
         parameter_vars: usize,
     ) -> Self {
@@ -77,12 +77,11 @@ impl<
 
 #[allow(clippy::type_complexity)]
 impl<
-        E: Residual + IdealGas,
         M: MolecularRepresentation,
-        R: PropertyModel<N, EquationOfState = E>,
-        P: ProcessModel<E>,
+        R: PropertyModel<N>,
+        P: ProcessModel<R::EquationOfState>,
         const N: usize,
-    > OptimizationProblem<E, M, R, P, N>
+    > OptimizationProblem<M, R, P, N>
 {
     fn solve(
         &mut self,

@@ -1,68 +1,9 @@
-use super::polynomial::{
-    Polynomial, Polynomial2,
-    Variable::{self as PolyVar, Const, Var},
-};
+use super::polynomial::Variable::{Const, Var};
+use super::polynomial::{Polynomial, Polynomial2, Variable as PolyVar};
 use super::{Constraint, Disjunction, MolecularRepresentation, StructureVariables};
 use crate::variables::{ExplicitVariable, Variable};
-use feos::core::parameter::{Identifier, SegmentCount};
 use indexmap::IndexMap;
-use std::borrow::Cow;
-use std::collections::HashMap;
 use std::iter::once;
-use std::ops::{Add, Mul};
-
-/// The molecular features used in the [GcPcSaftPropertyModel](crate::GcPcSaftPropertyModel).
-#[derive(Clone)]
-pub struct SegmentAndBondCount {
-    pub segments: HashMap<String, f64>,
-    pub bonds: HashMap<[String; 2], f64>,
-}
-
-impl SegmentAndBondCount {
-    pub fn new(segments: HashMap<String, f64>, bonds: HashMap<[String; 2], f64>) -> Self {
-        Self { segments, bonds }
-    }
-}
-
-impl SegmentCount for SegmentAndBondCount {
-    type Count = f64;
-
-    fn identifier(&self) -> Cow<Identifier> {
-        Cow::Owned(Identifier::default())
-    }
-
-    fn segment_count(&self) -> Cow<HashMap<String, Self::Count>> {
-        Cow::Borrowed(&self.segments)
-    }
-}
-
-impl Add for SegmentAndBondCount {
-    type Output = Self;
-
-    fn add(mut self, rhs: Self) -> Self::Output {
-        rhs.segments
-            .into_iter()
-            .for_each(|(s, n)| *self.segments.entry(s).or_insert(0.0) += n);
-        rhs.bonds
-            .into_iter()
-            .for_each(|(b, n)| *self.bonds.entry(b).or_insert(0.0) += n);
-        self
-    }
-}
-
-impl Mul<f64> for SegmentAndBondCount {
-    type Output = Self;
-
-    fn mul(self, rhs: f64) -> Self::Output {
-        let segments = self
-            .segments
-            .into_iter()
-            .map(|(s, n)| (s, n * rhs))
-            .collect();
-        let bonds = self.bonds.into_iter().map(|(b, n)| (b, n * rhs)).collect();
-        SegmentAndBondCount::new(segments, bonds)
-    }
-}
 
 #[derive(Clone, Debug)]
 struct FunctionalGroup {
@@ -82,8 +23,8 @@ impl FunctionalGroup {
 
     pub fn ctch() -> Self {
         Self {
-            groups: vec!["CH#CH", "C≡CH"],
-            smiles: vec!["C≡C"],
+            groups: vec!["CH≡CH", "C≡CH"],
+            smiles: vec!["C#C"],
             atoms: 2,
         }
     }

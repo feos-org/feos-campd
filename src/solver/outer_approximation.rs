@@ -3,7 +3,7 @@ use crate::process::ProcessModel;
 use crate::{
     Constraint, MolecularRepresentation, OptimizationProblem, OptimizationResult, PropertyModel,
 };
-use feos::core::{EosResult, IdealGas, Residual};
+use feos::core::EosResult;
 use knitro_rs::{Knitro, KnitroError};
 use std::array;
 
@@ -14,12 +14,11 @@ pub enum OuterApproximationAlgorithm {
 }
 
 impl<
-        E: Residual + IdealGas,
         M: MolecularRepresentation,
-        R: PropertyModel<N, EquationOfState = E>,
-        P: ProcessModel<E>,
+        R: PropertyModel<N>,
+        P: ProcessModel<R::EquationOfState>,
         const N: usize,
-    > OptimizationProblem<E, M, R, P, N>
+    > OptimizationProblem<M, R, P, N>
 {
     pub fn solve_outer_approximation(
         &mut self,
@@ -109,7 +108,9 @@ impl<
                 ubd = ubd.min(res.target);
                 (res, true)
             } else {
-                return Err(feos::core::EosError::NotConverged("NLP subproblem".into()));
+                return Err(feos::core::EosError::IterationFailed(
+                    "NLP subproblem".into(),
+                ));
             };
 
             // Evaluate gradients
@@ -251,7 +252,6 @@ impl<
         kc.solve()?;
         let f = kc.get_obj_value()?;
         let y = y.map(|y| kc.get_var_primal_values(&y).unwrap());
-
         Ok((f, y))
     }
 

@@ -2,18 +2,16 @@
 #![allow(clippy::too_many_arguments)]
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::marker::PhantomData;
+use std::sync::Arc;
+use std::{array, fmt};
 
 mod molecule;
 pub mod process;
 mod property;
 mod variables;
-pub use molecule::{CoMTCAMD, MolecularRepresentation, SegmentAndBondCount, SuperMolecule};
-pub use property::{
-    CoMTCAMDBinaryPropertyModel, CoMTCAMDPropertyModel, GcPcSaftPropertyModel, PropertyModel,
-};
+pub use molecule::{CoMTCAMD, MolecularRepresentation, SuperMolecule};
+pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
 pub use variables::{Constraint, ProcessVariables, StructureVariables, Variable, Variables};
 
 #[cfg(feature = "knitro_rs")]
@@ -26,18 +24,16 @@ mod python;
 
 /// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel](process::ProcessModel).
 // #[derive(Serialize, Deserialize)]
-pub struct OptimizationProblem<E, M, R, P, const N: usize> {
-    eos: PhantomData<E>,
+pub struct OptimizationProblem<M, R, P, const N: usize> {
     pub molecules: [M; N],
     pub property_model: R,
     pub process: P,
     pub solutions: HashSet<OptimizationResult>,
 }
 
-impl<E, M, R, P, const N: usize> OptimizationProblem<E, M, R, P, N> {
+impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
     pub fn new(molecules: [M; N], property_model: R, process: P) -> Self {
         Self {
-            eos: PhantomData,
             molecules,
             property_model,
             process,
@@ -45,7 +41,7 @@ impl<E, M, R, P, const N: usize> OptimizationProblem<E, M, R, P, N> {
         }
     }
 
-    fn smiles(&self, y: &[Vec<f64>; N]) -> (Vec<usize>, Vec<String>)
+    pub fn smiles(&self, y: &[Vec<f64>; N]) -> (Vec<usize>, Vec<String>)
     where
         M: MolecularRepresentation,
     {
@@ -60,6 +56,20 @@ impl<E, M, R, P, const N: usize> OptimizationProblem<E, M, R, P, N> {
             .unzip();
         let y_usize = y_usize.concat();
         (y_usize, smiles)
+    }
+
+    pub fn build_eos(&self, result: &OptimizationResult) -> Arc<R::EquationOfState>
+    where
+        M: MolecularRepresentation,
+        R: PropertyModel<N>,
+    {
+        let mut y_iter = result.y.iter().map(|&y| y as f64);
+        let f = array::from_fn(|i| {
+            let y = vec![y_iter.next().unwrap(); self.molecules[i].structure_variables().len()];
+            self.molecules[i].evaluate_feature_variables(&y)
+        });
+        let p = self.property_model.evaluate_parameter_variables(&f);
+        self.property_model.build_eos(&p)
     }
 }
 
