@@ -6,7 +6,7 @@ on:
 
 jobs:
   release-crates-io-knitro_rs:
-    name: Release crates.io
+    name: Release knitro-rs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,10 +18,11 @@ jobs:
       - uses: katyo/publish-crates@v1
         with:
           registry-token: ${{ secrets.CRATES_IO_TOKEN }}
+          args: --features knitro_12
           path: './knitro_rs'
 
   release-crates-io:
-    name: Release crates.io
+    name: Release feos-campd
     runs-on: ubuntu-latest
     needs: [release-crates-io-knitro_rs]
     steps:
