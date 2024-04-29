@@ -10,6 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Complete rewrite including the implementation of outer approximation algorithms and process models in Python.
 
-## [0.1.0] - 2024-04-15
+## [0.1.0] - 2022-10-19
 ### Added
 - Initial release
