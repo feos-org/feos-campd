@@ -23,6 +23,7 @@ struct Group {
     n_max: usize,
 }
 
+/// Molecular representation based on group counts, as used in 1-stage CoMT-CAMD.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CoMTCAMD {
     structures: Vec<Structure>,

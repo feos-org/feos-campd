@@ -16,6 +16,7 @@ pub use orc::OrganicRankineCycle;
 pub use process_state::{Isobar, ProcessState};
 
 /// Generic process model to be used in an [OptimizationProblem](super::OptimizationProblem).
+#[doc(hidden)]
 pub trait ProcessModel<E> {
     /// For each continuous process variable return the lower and upper bounds.
     fn variables(&self) -> ProcessVariables;

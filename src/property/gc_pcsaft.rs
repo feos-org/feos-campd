@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use std::path::Path;
 use std::sync::Arc;
 
-/// A generic group contribution method
+/// The heterosegmented gc-PC-SAFT equation of state.
 #[derive(Clone)]
 pub struct GcPcSaftPropertyModel {
     residual: Vec<SegmentRecord<GcPcSaftRecord>>,

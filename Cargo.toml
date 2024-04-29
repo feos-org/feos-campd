@@ -1,6 +1,6 @@
 [package]
 name = "feos-campd"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Philipp Rehner <prehner@ethz.ch>"]
 edition = "2021"
 readme = "README.md"
@@ -23,7 +23,7 @@ petgraph = "0.6"
 serde = "1.0"
 serde_json = "1.0"
 itertools = "0.12"
-knitro_rs = { version = "0.1", path = "knitro_rs", optional = true }
+knitro_rs = { version = "0.2", path = "knitro_rs", optional = true }
 pyo3 = { version = "0.20", features = ["extension-module", "abi3", "abi3-py37"], optional = true }
 numpy = { version = "0.20", optional = true }
 quantity = { version = "0.7", optional = true }
