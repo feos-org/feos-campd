@@ -5,6 +5,3 @@ build-backend = "maturin"
 [tool.maturin]
 bindings = "pyo3"
 features = ["python"]
-
-[project]
-name = "feos-torch"
