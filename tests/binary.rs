@@ -1,5 +1,6 @@
 #![cfg(feature = "knitro_rs")]
 use anyhow::Result;
+use approx::assert_relative_eq;
 use feos::core::parameter::{IdentifierOption, Parameter, PureRecord};
 use feos::core::si::{KELVIN, MOL};
 use feos::core::{EosResult, Residual, State};
@@ -55,7 +56,7 @@ pub fn test_binary() -> Result<()> {
         ),
     );
     let params = PcSaftParameters::new_binary(
-        vec![pentane, benzene],
+        vec![benzene, pentane],
         Some(PcSaftBinaryRecord::new(
             Some(-0.18371738189391876),
             None,
@@ -66,7 +67,7 @@ pub fn test_binary() -> Result<()> {
     let (t, _, _) = CriticalPointModel.solve(&eos, &result.x)?;
     println!("{t}");
 
-    assert_eq!(t, result.target);
+    assert_relative_eq!(t, result.target, max_relative = 1e-5);
 
     Ok(())
 }

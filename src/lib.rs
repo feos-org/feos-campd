@@ -11,8 +11,12 @@ pub mod process;
 mod property;
 mod variables;
 pub use molecule::{CoMTCAMD, MolecularRepresentation, SuperMolecule};
+#[doc(inline)]
+pub use process::ProcessModel;
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
-pub use variables::{Constraint, ProcessVariables, StructureVariables, Variable, Variables};
+pub use variables::{
+    Constraint, ExplicitVariable, ProcessVariables, StructureVariables, Variable, Variables,
+};
 
 #[cfg(feature = "knitro_rs")]
 mod solver;

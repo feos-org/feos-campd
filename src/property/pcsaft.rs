@@ -35,6 +35,7 @@ impl From<(SegmentRecord<PcSaftRecord>, IdealGasRecord)> for GroupRecord {
     }
 }
 
+/// The homosegmented group contribution method for the PC-SAFT equation of state.
 #[derive(Clone)]
 pub struct PcSaftPropertyModel {
     parameter_names: Vec<String>,

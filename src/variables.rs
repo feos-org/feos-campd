@@ -4,6 +4,7 @@ use indexmap::IndexMap;
 #[cfg(feature = "knitro_rs")]
 use knitro_rs::{Knitro, KnitroError};
 
+/// A single variable.
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 pub struct Variable<const INTEGER: bool> {
@@ -13,6 +14,7 @@ pub struct Variable<const INTEGER: bool> {
     init: Option<f64>,
 }
 
+/// A collection of variables.
 #[derive(Debug)]
 pub struct Variables<const INTEGER: bool>(IndexMap<String, Variable<INTEGER>>);
 
@@ -62,7 +64,9 @@ impl<const INTEGER: bool> From<Vec<(&str, Variable<INTEGER>)>> for Variables<INT
     }
 }
 
+/// A collection of process (continuous) variables.
 pub type ProcessVariables = Variables<false>;
+/// A collection of structure (binary) variables.
 pub type StructureVariables = Variables<true>;
 
 impl<const INTEGER: bool> Variable<INTEGER> {
@@ -171,6 +175,7 @@ impl<const INTEGER: bool> Variable<INTEGER> {
     }
 }
 
+/// A single generic linear or quadratic constraint.
 #[derive(Default, Debug)]
 pub struct Constraint {
     pub lvars: Vec<i32>,
@@ -233,6 +238,7 @@ impl Constraint {
     }
 }
 
+/// A variable that can be evaluated explicitly from a linear or quadratic struct.
 #[derive(Default, Debug)]
 pub struct ExplicitVariable {
     pub name: String,
