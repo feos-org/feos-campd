@@ -109,3 +109,18 @@ Molecular representations and property models can be combined according to:
 |-|-|-|
 | CoMTCAMD | yes | no |
 | SuperMolecule | yes | yes |
+
+### Cite us
+If you find FeOs-torch useful for your own research, consider citing our [publication](https://pubs.rsc.org/en/content/articlelanding/2023/me/d2me00230b) from which this library resulted.
+```
+@article{rehner2023molecule_superstructures,
+  author = {Rehner, Philipp and Schilling, Johannes and Bardow, André},
+  title = {Molecule superstructures for computer-aided molecular and process design}
+  journal = {Molecular Systems Design & Engineering},
+  volume = {8},
+  issue = {4},
+  number = {12},
+  pages = {488-499},
+  year = {2023}
+}
+```
