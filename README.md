@@ -23,7 +23,7 @@ feos-campd = "0.2"
 ```
 
 ### Python
-If you have a Rust compiler installed, you can builf the package directly from source using:
+If you have a Rust compiler installed, you can build the package directly from source using:
 ```
 pip install git+https://github.com/feos-org/feos-campd
 ```
