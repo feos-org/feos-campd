@@ -69,7 +69,10 @@ impl<M, R, P, const N: usize> OptimizationProblem<M, R, P, N> {
     {
         let mut y_iter = result.y.iter().map(|&y| y as f64);
         let f = array::from_fn(|i| {
-            let y = vec![y_iter.next().unwrap(); self.molecules[i].structure_variables().len()];
+            let y: Vec<_> = y_iter
+                .by_ref()
+                .take(self.molecules[i].structure_variables().len())
+                .collect();
             self.molecules[i].evaluate_feature_variables(&y)
         });
         let p = self.property_model.evaluate_parameter_variables(&f);
