@@ -16,17 +16,17 @@ name = "feos_campd"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-feos-core = { version = "0.6", optional = true }
-feos = { version = "0.6", features = ["pcsaft", "gc_pcsaft"] }
+feos-core = { version = "0.7", optional = true }
+feos = { version = "0.7", features = ["pcsaft", "gc_pcsaft"] }
 ndarray = "0.15"
 petgraph = "0.6"
 serde = "1.0"
 serde_json = "1.0"
-itertools = "0.12"
+itertools = "0.13"
 knitro_rs = { version = "0.2", path = "knitro_rs", optional = true }
-pyo3 = { version = "0.20", features = ["extension-module", "abi3", "abi3-py37"], optional = true }
-numpy = { version = "0.20", optional = true }
-quantity = { version = "0.7", optional = true }
+pyo3 = { version = "0.21", features = ["extension-module", "abi3", "abi3-py37"], optional = true }
+numpy = { version = "0.21", optional = true }
+quantity = { version = "0.8", optional = true }
 typenum = "1.17"
 indexmap = "2.2"
 

@@ -16,26 +16,24 @@ pub struct PyProcessModel(Py<PyAny>);
 #[pymethods]
 impl PyProcessModel {
     #[new]
-    pub fn new(obj: Py<PyAny>) -> PyResult<Self> {
-        Python::with_gil(|py| {
-            let attr = obj.as_ref(py).hasattr("variables")?;
-            if !attr {
-                panic!("Python class must have a method 'variables' with signature:\n\tdef variables(self) -> List[[int, int, int]]")
-            }
-            let attr = obj.as_ref(py).hasattr("equality_constraints")?;
-            if !attr {
-                panic!("Python class must have a method 'equality_constraints' with signature:\n\tdef equality_constraints(self) -> int")
-            }
-            let attr = obj.as_ref(py).hasattr("inequality_constraints")?;
-            if !attr {
-                panic!("Python class must have a method 'inequality_constraints' with signature:\n\tdef inequality_constraints(self) -> int")
-            }
-            let attr = obj.as_ref(py).hasattr("solve")?;
-            if !attr {
-                panic!("Python class must have a method 'solve' with signature:\n\tdef solve(self, eos: EquationOfState, x: List[float]) -> (float, List[float], List[float])")
-            }
-            Ok(Self(obj))
-        })
+    pub fn new(obj: Bound<'_, PyAny>) -> PyResult<Self> {
+        let attr = obj.hasattr("variables")?;
+        if !attr {
+            panic!("Python class must have a method 'variables' with signature:\n\tdef variables(self) -> List[[int, int, int]]")
+        }
+        let attr = obj.hasattr("equality_constraints")?;
+        if !attr {
+            panic!("Python class must have a method 'equality_constraints' with signature:\n\tdef equality_constraints(self) -> int")
+        }
+        let attr = obj.hasattr("inequality_constraints")?;
+        if !attr {
+            panic!("Python class must have a method 'inequality_constraints' with signature:\n\tdef inequality_constraints(self) -> int")
+        }
+        let attr = obj.hasattr("solve")?;
+        if !attr {
+            panic!("Python class must have a method 'solve' with signature:\n\tdef solve(self, eos: EquationOfState, x: List[float]) -> (float, List[float], List[float])")
+        }
+        Ok(Self(obj.unbind()))
     }
 }
 
@@ -44,8 +42,8 @@ macro_rules! impl_process_model {
         impl ProcessModel<EquationOfState<Joback, $eos>> for PyProcessModel {
             fn variables(&self) -> ProcessVariables {
                 Python::with_gil(|py| {
-                    let py_result = self.0.as_ref(py).call_method0("variables").unwrap();
-                    if py_result.get_type().name().unwrap() != "list" {
+                    let py_result = self.0.bind(py).call_method0("variables").unwrap();
+                    if py_result.get_type().name().unwrap() != "builtins.list" {
                         panic!(
                             "Expected a list for the variables() method signature, got {}",
                             py_result.get_type().name().unwrap()
@@ -63,10 +61,10 @@ macro_rules! impl_process_model {
                 Python::with_gil(|py| {
                     let py_result = self
                         .0
-                        .as_ref(py)
+                        .bind(py)
                         .call_method0("equality_constraints")
                         .unwrap();
-                    if py_result.get_type().name().unwrap() != "int" {
+                    if py_result.get_type().name().unwrap() != "builtins.int" {
                         panic!(
                             "Expected an integer for the equality_constraints() method signature, got {}",
                             py_result.get_type().name().unwrap()
@@ -80,10 +78,10 @@ macro_rules! impl_process_model {
                 Python::with_gil(|py| {
                     let py_result = self
                         .0
-                        .as_ref(py)
+                        .bind(py)
                         .call_method0("inequality_constraints")
                         .unwrap();
-                    if py_result.get_type().name().unwrap() != "int" {
+                    if py_result.get_type().name().unwrap() != "builtins.int" {
                         panic!(
                             "Expected an integer for the inequality_constraints() method signature, got {}",
                             py_result.get_type().name().unwrap()
@@ -101,7 +99,7 @@ macro_rules! impl_process_model {
                 Python::with_gil(|py| {
                     let py_eos = $py_eos(eos.clone());
                     self.0
-                        .as_ref(py)
+                        .bind(py)
                         .call_method1("solve", (py_eos, x.to_vec()))
                         .and_then(|py_result| py_result.extract::<(f64, Vec<f64>, Vec<f64>)>())
                         .map_err(|_| EosError::NotConverged("Process model".into()))
