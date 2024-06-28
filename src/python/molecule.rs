@@ -1,6 +1,7 @@
 use crate::CoMTCAMD;
 use crate::{molecule::Disjunction, MolecularRepresentation, SuperMolecule};
 use pyo3::prelude::*;
+use pyo3::pybacked::PyBackedStr;
 use std::collections::HashMap;
 
 #[pyclass(name = "CoMTCAMD")]
@@ -24,8 +25,8 @@ impl PyCoMTCAMD {
         Ok(Self(CoMTCAMD::from_json_molecules(file)?))
     }
 
-    fn get_initial_values(&self, structure: &str, groups: HashMap<&str, usize>) -> Vec<f64> {
-        let groups = groups.into_iter().collect();
+    fn get_initial_values(&self, structure: &str, groups: HashMap<PyBackedStr, usize>) -> Vec<f64> {
+        let groups = groups.iter().map(|(k, &v)| (&**k, v)).collect();
         self.0.get_initial_values(structure, &groups)
     }
 

@@ -5,6 +5,7 @@ use feos::ideal_gas::Joback;
 use feos::pcsaft::PcSaft;
 use numpy::convert::ToPyArray;
 use numpy::{PyArray1, PyArray2};
+use numpy::prelude::*;
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
 use quantity::python::{PySIArray1, PySIArray2, PySINumber};
@@ -28,7 +29,7 @@ pub mod pcsaft {
     impl_phase_equilibrium!(EquationOfState<Joback, PcSaft>, PyPcSaft);
 
     #[pymodule]
-    pub fn pcsaft(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    pub fn pcsaft(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<Contributions>()?;
         m.add_class::<Verbosity>()?;
 
@@ -55,7 +56,7 @@ pub mod gc_pcsaft {
     impl_phase_equilibrium!(EquationOfState<Joback, GcPcSaft>, PyGcPcSaft);
 
     #[pymodule]
-    pub fn gc_pcsaft(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    pub fn gc_pcsaft(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<Contributions>()?;
         m.add_class::<Verbosity>()?;
 

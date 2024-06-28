@@ -49,8 +49,8 @@ impl PyOptimizationProblem {
     #[staticmethod]
     fn pure(
         py: Python,
-        molecule: &PyAny,
-        property: &PyAny,
+        molecule: &Bound<'_, PyAny>,
+        property: &Bound<'_, PyAny>,
         process: PyProcessModel,
     ) -> PyResult<PyObject> {
         if let (Ok(comt_camd), Ok(pcsaft)) = (
@@ -89,8 +89,8 @@ impl PyOptimizationProblem {
     #[staticmethod]
     fn binary(
         py: Python,
-        molecule: &PyAny,
-        property: &PyAny,
+        molecule: &Bound<'_, PyAny>,
+        property: &Bound<'_, PyAny>,
         process: PyProcessModel,
     ) -> PyResult<PyObject> {
         if let (Ok([m1, m2]), Ok(pcsaft)) = (
@@ -350,7 +350,7 @@ impl PyOptimizationResult {
 }
 
 #[pymodule]
-pub fn feos_campd(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn feos_campd(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_wrapped(wrap_pymodule!(quantity_module))?;
     m.add_wrapped(wrap_pymodule!(pcsaft_module))?;
@@ -364,14 +364,14 @@ pub fn feos_campd(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyOptimizationProblem>()?;
     m.add_class::<PyOuterApproximationAlgorithm>()?;
 
-    set_path(py, m, "feos_campd.si", "quantity")?;
-    set_path(py, m, "feos_campd.pcsaft", "pcsaft")?;
-    set_path(py, m, "feos_campd.gc_pcsaft", "gc_pcsaft")?;
+    set_path(m, "feos_campd.si", "quantity")?;
+    set_path(m, "feos_campd.pcsaft", "pcsaft")?;
+    set_path(m, "feos_campd.gc_pcsaft", "gc_pcsaft")?;
     Ok(())
 }
 
-fn set_path(py: Python<'_>, m: &PyModule, path: &str, module: &str) -> PyResult<()> {
-    py.run(
+fn set_path(m: &Bound<'_, PyModule>, path: &str, module: &str) -> PyResult<()> {
+    m.py().run_bound(
         &format!(
             "\
 import sys
@@ -379,6 +379,6 @@ sys.modules['{path}'] = {module}
     "
         ),
         None,
-        Some(m.dict()),
+        Some(&m.dict()),
     )
 }
