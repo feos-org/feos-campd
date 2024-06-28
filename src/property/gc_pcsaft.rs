@@ -28,6 +28,7 @@ impl GcPcSaftPropertyModel {
         file_ideal_gas: P,
         file_binary: Option<P>,
     ) -> Result<Self, ParameterError> {
+        let mut i = 0;
         let (groups, bonds) = molecules
             .iter()
             .map(|molecule| {
@@ -38,14 +39,14 @@ impl GcPcSaftPropertyModel {
                 molecule
                     .feature_variables(&index_structure_vars)
                     .into_keys()
-                    .enumerate()
-                    .for_each(|(i, s)| {
+                    .for_each(|s| {
                         if let Some(index) = s.find('-') {
                             let (g1, g2) = s.split_at(index);
                             bonds.push(([g1.to_string(), g2[1..].to_string()], i));
                         } else {
                             groups.push((s, i))
                         }
+                        i += 1;
                     });
                 (groups, bonds)
             })
@@ -96,11 +97,13 @@ impl<const N: usize> PropertyModel<N> for GcPcSaftPropertyModel {
                     .iter()
                     .cloned()
                     .map(|(s, i)| (s, parameters[i]))
+                    .filter(|(_, n)| *n > 0.0)
                     .collect();
                 let bonds = bonds
                     .iter()
                     .cloned()
                     .map(|(s, i)| (s, parameters[i]))
+                    .filter(|(_, n)| *n > 0.0)
                     .collect();
                 GcPcSaftChemicalRecord::new(Identifier::default(), segments, bonds, 1.0)
             })
