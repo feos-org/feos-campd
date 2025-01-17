@@ -1,6 +1,7 @@
-use super::PySuperMolecule;
-use crate::{GcPcSaftPropertyModel, PcSaftPropertyModel};
+use super::{eos::pcsaft::PyPcSaft, PySuperMolecule};
+use crate::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
 use feos_core::parameter::IdentifierOption;
+use indexmap::IndexMap;
 use pyo3::prelude::*;
 
 #[pyclass(name = "PcSaftPropertyModel")]
@@ -41,6 +42,20 @@ impl PyPcSaftPropertyModel {
             identifier_option,
             symmetry_constraints,
         )?))
+    }
+
+    fn build_eos_pure(&self, feature_variables: [IndexMap<String, f64>; 1]) -> PyPcSaft {
+        let p = self.0.evaluate_parameter_variables(&feature_variables);
+        PyPcSaft(<PcSaftPropertyModel as PropertyModel<1>>::build_eos(
+            &self.0, &p,
+        ))
+    }
+
+    fn build_eos_binary(&self, feature_variables: [IndexMap<String, f64>; 2]) -> PyPcSaft {
+        let p = self.0.evaluate_parameter_variables(&feature_variables);
+        PyPcSaft(<PcSaftPropertyModel as PropertyModel<2>>::build_eos(
+            &self.0, &p,
+        ))
     }
 }
 

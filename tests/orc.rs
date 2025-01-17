@@ -1,10 +1,9 @@
 use anyhow::Result;
 use feos::core::parameter::{IdentifierOption, Parameter};
-use feos::core::{EosResult, EquationOfState};
+use feos::core::EquationOfState;
 use feos::ideal_gas::{Joback, JobackRecord};
 use feos::pcsaft::{PcSaft, PcSaftParameters};
 use feos_campd::process::{OrganicRankineCycle, ProcessModel};
-use feos_campd::ProcessVariables;
 #[cfg(feature = "knitro_rs")]
 use indexmap::IndexMap;
 use std::fs::File;
@@ -333,23 +332,4 @@ fn test_supermolecule_disjunct_oa() -> Result<()> {
         max_relative = 1e-5
     );
     Ok(())
-}
-
-struct NoModel;
-impl<E> ProcessModel<E> for NoModel {
-    fn variables(&self) -> ProcessVariables {
-        vec![].into()
-    }
-
-    fn equality_constraints(&self) -> usize {
-        0
-    }
-
-    fn inequality_constraints(&self) -> usize {
-        0
-    }
-
-    fn solve(&self, _: &Arc<E>, _: &[f64]) -> EosResult<(f64, Vec<f64>, Vec<f64>)> {
-        Ok((0.0, vec![], vec![]))
-    }
 }

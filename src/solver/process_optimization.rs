@@ -19,8 +19,8 @@ impl<'a, R, P, const N: usize> ProcessCallback<'a, R, P, N> {
     }
 }
 
-impl<'a, R: PropertyModel<N>, P: ProcessModel<R::EquationOfState>, const N: usize> EvalCallback
-    for ProcessCallback<'a, R, P, N>
+impl<R: PropertyModel<N>, P: ProcessModel<R::EquationOfState>, const N: usize> EvalCallback
+    for ProcessCallback<'_, R, P, N>
 {
     fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32 {
         let (x, p) = x.split_at(self.process.variables().len());

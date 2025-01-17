@@ -1,5 +1,6 @@
 use crate::CoMTCAMD;
 use crate::{molecule::Disjunction, MolecularRepresentation, SuperMolecule};
+use indexmap::IndexMap;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
@@ -31,6 +32,10 @@ impl PyCoMTCAMD {
 
     fn get_initial_values_molecules(&self, molecule: &str) -> Vec<f64> {
         self.0.get_initial_values_molecules(molecule)
+    }
+
+    fn parameter_variables(&self, y: Vec<f64>) -> IndexMap<String, f64> {
+        self.0.evaluate_feature_variables(&y)
     }
 }
 

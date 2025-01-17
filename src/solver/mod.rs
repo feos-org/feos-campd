@@ -31,12 +31,11 @@ impl<'a, R, P, const N: usize> OptimizationProblemCallback<'a, R, P, N> {
 }
 
 impl<
-        'a,
         E: Residual + IdealGas,
         R: PropertyModel<N, EquationOfState = E>,
         P: ProcessModel<E>,
         const N: usize,
-    > EvalCallback for OptimizationProblemCallback<'a, R, P, N>
+    > EvalCallback for OptimizationProblemCallback<'_, R, P, N>
 {
     fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32 {
         match self.evaluate(x) {
@@ -59,12 +58,11 @@ impl<
 }
 
 impl<
-        'a,
         E: Residual + IdealGas,
         R: PropertyModel<N, EquationOfState = E>,
         P: ProcessModel<E>,
         const N: usize,
-    > OptimizationProblemCallback<'a, R, P, N>
+    > OptimizationProblemCallback<'_, R, P, N>
 {
     fn evaluate(&self, vars: &[f64]) -> EosResult<(f64, Vec<f64>)> {
         let x = &vars[..self.process_vars];
