@@ -1,1 +1,0 @@
-#include </opt/Knitro/knitro-13.0.1-Linux-64/include/knitro.h>
