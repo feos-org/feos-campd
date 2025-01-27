@@ -7,6 +7,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
+/// A generic property model to be used in an [IntegratedDesign](../IntegratedDesign)
 pub trait PropertyModel<const N: usize> {
     type EquationOfState: TotalHelmholtzEnergy<N>;
 
@@ -16,6 +17,7 @@ pub trait PropertyModel<const N: usize> {
     ) -> HelmholtzEnergyWrapper<Self::EquationOfState, D, N>;
 }
 
+/// The heterosegmented gc-PC-SAFT equation of state.
 #[derive(Clone, Copy)]
 pub struct GcPcSaftPropertyModel;
 
@@ -40,6 +42,7 @@ impl<const N: usize> PropertyModel<N> for GcPcSaftPropertyModel {
     }
 }
 
+/// The homosegmented group contribution method for the PC-SAFT equation of state.
 #[derive(Clone)]
 pub struct PcSaftPropertyModel<const ASSOC: bool> {
     parameters: HashMap<String, PcSaftRecord>,

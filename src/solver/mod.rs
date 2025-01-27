@@ -12,6 +12,7 @@ use std::fmt::Debug;
 mod dual_vec_multiple;
 mod nlp;
 
+/// The output of a single optimization consisting of the objective, structure variables, and process variables.
 #[derive(Clone)]
 pub struct OptimizationResult<const N_X: usize, const N_Y1: usize, const N_Y2: usize> {
     pub key: String,
@@ -67,6 +68,7 @@ impl Default for OptimizationOptions<'_> {
     }
 }
 
+/// A generalization over equality and inequality constraints.
 #[derive(Clone, Copy)]
 pub enum GeneralConstraint {
     Equality(f64),
@@ -89,6 +91,7 @@ impl GeneralConstraint {
     }
 }
 
+/// A generic MINLP that can be solved with the [OuterApproximation] algorithm.
 pub trait MixedIntegerNonLinearProgram<const N_X: usize, const N_Y1: usize, const N_Y2: usize> {
     type Error;
 
@@ -113,6 +116,7 @@ pub trait MixedIntegerNonLinearProgram<const N_X: usize, const N_Y1: usize, cons
     }
 }
 
+/// Implementation of outer approximation in Rust.
 pub struct OuterApproximation<
     'a,
     M: MixedIntegerNonLinearProgram<N_X, N_Y1, N_Y2>,

@@ -10,6 +10,7 @@ pub use comt_camd::CoMTCAMD;
 pub use disjunction::Disjunction;
 pub use supermolecule::SuperMolecule;
 
+/// A generic molecular representation to be used in an [IntegratedDesign](../IntegratedDesign).
 pub trait MolecularRepresentation<const N_Y: usize> {
     fn structure_variables(&self) -> [(i32, i32); N_Y];
 

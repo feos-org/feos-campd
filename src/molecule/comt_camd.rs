@@ -82,6 +82,7 @@ static STRUCTURES: LazyLock<[Structure; N_STRUCTURES]> = LazyLock::new(|| {
 
 const N_Y: usize = N_GROUPS + N_STRUCTURES;
 
+/// Molecular representation based on group counts, as used in 1-stage CoMT-CAMD.
 pub struct CoMTCAMD;
 
 impl MolecularRepresentation<N_Y> for CoMTCAMD {

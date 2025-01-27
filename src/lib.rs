@@ -9,7 +9,7 @@ mod molecule;
 mod process;
 mod property;
 mod solver;
-pub use molecule::{CoMTCAMD, Disjunction, MolecularRepresentation, SuperMolecule};
+pub use molecule::{CoMTCAMD, MolecularRepresentation, SuperMolecule};
 pub use process::{ContinuousVariable, ProcessModel};
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
 pub use solver::{
@@ -28,6 +28,7 @@ impl<D> ChemicalRecord<D> {
     }
 }
 
+/// A full optimization problem consisting of a [MolecularRepresentation], a [PropertyModel], and a [ProcessModel].
 #[derive(Clone)]
 pub struct IntegratedDesign<M, R, P> {
     molecule: M,

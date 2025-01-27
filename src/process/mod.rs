@@ -8,6 +8,7 @@ mod orc;
 #[cfg(test)]
 pub use orc::OrganicRankineCycle;
 
+/// Information about bounds and initial values of continuous variables.
 #[derive(Clone, Copy)]
 pub struct ContinuousVariable {
     pub lobnd: f64,
@@ -21,6 +22,7 @@ impl ContinuousVariable {
     }
 }
 
+/// Generic process model to be used in an [IntegratedDesign](../IntegratedDesign).
 pub trait ProcessModel<E: ParametersAD, const N_X: usize, const N: usize> {
     fn variables(&self) -> [ContinuousVariable; N_X];
 
