@@ -1,217 +1,460 @@
-use crate::process::ProcessModel;
-use crate::*;
-use feos::core::{EosResult, IdealGas, Residual};
-use knitro_rs::*;
-use std::array;
+use core::f64;
+use good_lp::{
+    constraint, variable, Constraint as LinearConstraint, Expression, ProblemVariables, Solution,
+    Solver, SolverModel, Variable,
+};
+use ipopt::IpoptOption;
+use nalgebra::{DVector, SMatrix, SVector};
+use num_dual::DualNum;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 
-mod outer_approximation;
-mod process_optimization;
-pub use outer_approximation::OuterApproximationAlgorithm;
+mod dual_vec_multiple;
+mod nlp;
 
-struct OptimizationProblemCallback<'a, R, P, const N: usize> {
-    property_model: &'a R,
-    process: &'a P,
-    process_vars: usize,
-    parameter_vars: usize,
+#[derive(Clone)]
+pub struct OptimizationResult<const N_X: usize, const N_Y1: usize, const N_Y2: usize> {
+    pub key: String,
+    pub objective: Gradient<N_X, N_Y1, N_Y2>,
+    pub constraints: Vec<Gradient<N_X, N_Y1, N_Y2>>,
+    pub x: SVector<f64, N_X>,
+    pub y: SMatrix<f64, N_Y1, N_Y2>,
+    pub s: Vec<f64>,
+    pub lambda: DVector<f64>,
 }
 
-impl<'a, R, P, const N: usize> OptimizationProblemCallback<'a, R, P, N> {
-    fn new<M>(
-        problem: &'a OptimizationProblem<M, R, P, N>,
-        process_vars: usize,
-        parameter_vars: usize,
+impl<const N_X: usize, const N_Y1: usize, const N_Y2: usize> OptimizationResult<N_X, N_Y1, N_Y2> {
+    pub fn new(
+        key: String,
+        y: SMatrix<f64, N_Y1, N_Y2>,
+        s: Vec<f64>,
+        objective: Gradient<N_X, N_Y1, N_Y2>,
+        constraints: Vec<Gradient<N_X, N_Y1, N_Y2>>,
+        x: SVector<f64, N_X>,
+        lambda: DVector<f64>,
     ) -> Self {
         Self {
-            property_model: &problem.property_model,
-            process: &problem.process,
-            process_vars,
-            parameter_vars,
+            key,
+            objective,
+            constraints,
+            x,
+            y,
+            s,
+            lambda,
         }
     }
 }
 
-impl<
-        E: Residual + IdealGas,
-        R: PropertyModel<N, EquationOfState = E>,
-        P: ProcessModel<E>,
-        const N: usize,
-    > EvalCallback for OptimizationProblemCallback<'_, R, P, N>
-{
-    fn callback(&self, x: &[f64], obj: &mut f64, c: &mut [f64]) -> i32 {
-        match self.evaluate(x) {
-            Ok((target, constraints)) => {
-                if constraints.len() != c.len() {
-                    println!("Wrong number of constraints returned from process model!");
-                    return KN_RC_EVAL_ERR;
-                }
-                c.copy_from_slice(&constraints);
-                *obj = target;
-                0
-            }
-            Err(_) => {
-                // println!("{e}");
-                // panic!();
-                KN_RC_EVAL_ERR
-            }
+type Gradient<const N_X: usize, const N_Y1: usize, const N_Y2: usize> =
+    (f64, SMatrix<f64, N_Y1, N_Y2>, SVector<f64, N_X>);
+
+#[derive(Clone)]
+pub struct OptimizationOptions<'a> {
+    pub min_iter: usize,
+    pub max_iter: usize,
+    pub zero_tol: f64,
+    pub nlp_options: Vec<(&'a str, IpoptOption<'a>)>,
+}
+
+impl Default for OptimizationOptions<'_> {
+    fn default() -> Self {
+        Self {
+            min_iter: 5,
+            max_iter: 50,
+            zero_tol: 1e-6,
+            nlp_options: vec![("print_level", IpoptOption::Int(0))],
         }
     }
 }
 
-impl<
-        E: Residual + IdealGas,
-        R: PropertyModel<N, EquationOfState = E>,
-        P: ProcessModel<E>,
-        const N: usize,
-    > OptimizationProblemCallback<'_, R, P, N>
-{
-    fn evaluate(&self, vars: &[f64]) -> EosResult<(f64, Vec<f64>)> {
-        let x = &vars[..self.process_vars];
-        let p = &vars[vars.len() - self.parameter_vars..];
-        let eos = self.property_model.build_eos(p);
-        let (target, eq_constraints, ineq_constraints) = self.process.solve(&eos, x)?;
-        Ok((target, [eq_constraints, ineq_constraints].concat()))
+#[derive(Clone, Copy)]
+pub enum GeneralConstraint {
+    Equality(f64),
+    Inequality(Option<f64>, Option<f64>),
+}
+
+impl GeneralConstraint {
+    pub fn lower_bound(&self) -> f64 {
+        match self {
+            Self::Equality(e) => *e,
+            Self::Inequality(l, _) => l.unwrap_or(f64::NEG_INFINITY),
+        }
+    }
+
+    pub fn upper_bound(&self) -> f64 {
+        match self {
+            Self::Equality(e) => *e,
+            Self::Inequality(_, u) => u.unwrap_or(f64::INFINITY),
+        }
     }
 }
 
-#[allow(clippy::type_complexity)]
+pub trait MixedIntegerNonLinearProgram<const N_X: usize, const N_Y1: usize, const N_Y2: usize> {
+    type Error;
+
+    fn x_variables(&self) -> SVector<(f64, f64, f64), N_X>;
+
+    fn y_variables(&self) -> SMatrix<(i32, i32), N_Y1, N_Y2>;
+
+    fn linear_constraints(&self, y: SMatrix<Variable, N_Y1, N_Y2>) -> Vec<LinearConstraint>;
+
+    fn constraints(&self) -> Vec<GeneralConstraint>;
+
+    fn evaluate<D: DualNum<f64> + Copy>(
+        &self,
+        x: SVector<D, N_X>,
+        y: SMatrix<D, N_Y1, N_Y2>,
+    ) -> Result<(D, Vec<D>), Self::Error>;
+
+    fn y_to_string(&self, y: &SMatrix<f64, N_Y1, N_Y2>) -> String;
+
+    fn exclude_solutions(&self, s: &[f64]) -> Vec<Vec<f64>> {
+        vec![s.to_vec()]
+    }
+}
+
+pub struct OuterApproximation<
+    'a,
+    M: MixedIntegerNonLinearProgram<N_X, N_Y1, N_Y2>,
+    const N_X: usize,
+    const N_Y1: usize,
+    const N_Y2: usize,
+> {
+    minlp: &'a M,
+    known_solutions: HashMap<String, OptimizationResult<N_X, N_Y1, N_Y2>>,
+    excluded_solutions: Vec<Vec<f64>>,
+}
+
 impl<
-        M: MolecularRepresentation,
-        R: PropertyModel<N>,
-        P: ProcessModel<R::EquationOfState>,
-        const N: usize,
-    > OptimizationProblem<M, R, P, N>
+        'a,
+        M: MixedIntegerNonLinearProgram<N_X, N_Y1, N_Y2>,
+        const N_X: usize,
+        const N_Y1: usize,
+        const N_Y2: usize,
+    > OuterApproximation<'a, M, N_X, N_Y1, N_Y2>
+where
+    M::Error: Debug,
 {
-    fn solve(
-        &mut self,
-        x0: Option<&[f64]>,
-        y0: Option<&[Vec<f64>; N]>,
-        options: Option<&str>,
-        target: bool,
-    ) -> Result<(f64, Vec<f64>, [Vec<f64>; N]), KnitroError> {
-        let kc = Knitro::new()?;
-
-        // declare process variables
-        let index_process_vars = self.process.variables().setup_knitro(&kc, x0)?;
-
-        // add equality constraints
-        let index_eq_cons = kc.add_cons(self.process.equality_constraints())?;
-        for &i in &index_eq_cons {
-            kc.set_con_eqbnd(i, 0.0)?;
+    pub fn new(minlp: &'a M) -> Self {
+        Self {
+            minlp,
+            known_solutions: HashMap::new(),
+            excluded_solutions: vec![],
         }
-
-        // add inequality constraints
-        let index_ineq_cons = kc.add_cons(self.process.inequality_constraints())?;
-        for &i in &index_ineq_cons {
-            kc.set_con_lobnd(i, 0.0)?;
-        }
-        let index_cons = [index_eq_cons.clone(), index_ineq_cons.clone()].concat();
-
-        // Set up CAMD formulation
-        let mut index_structure_vars = array::from_fn(|_| Vec::new());
-        let index_feature_vars = array::from_fn(|i| {
-            let (y, f) = self.molecules[i]
-                .setup_knitro(&kc, y0.map(|y0| &y0[i][..]), target)
-                .unwrap();
-            index_structure_vars[i].extend(y);
-            f
-        });
-
-        // integer cuts
-        let all_structure_vars = index_structure_vars.concat();
-        for solution in &self.solutions {
-            let y0 = &solution.y;
-            let coefs: Vec<_> = y0.iter().map(|&y0| 1.0 - 2.0 * y0 as f64).collect();
-            let lobnd = 1.0 - y0.iter().map(|&y0| y0 as f64).sum::<f64>();
-            Constraint::new()
-                .linear_struct(all_structure_vars.clone(), coefs)
-                .lobnd(lobnd)
-                .setup_knitro(&kc)?;
-        }
-
-        // Set up property model
-        let index_parameter_vars = self.property_model.setup_knitro(&kc, &index_feature_vars)?;
-
-        // Set up function callback
-        let mut callback = OptimizationProblemCallback::new(
-            self,
-            index_process_vars.len(),
-            index_parameter_vars.len(),
-        );
-        let mut cb = kc.add_eval_callback(true, &index_cons, &mut callback)?;
-        if let Some(options) = options {
-            kc.load_param_file(options)?;
-        }
-
-        // only evaluate gradients with respect to explicit variables
-        let vars = [index_process_vars.clone(), index_parameter_vars].concat();
-        let jac_vars = vec![&vars as &[i32]; index_cons.len()].concat();
-        let jac_cons: Vec<_> = index_cons
-            .iter()
-            .flat_map(|&i| vec![i; vars.len()])
-            .collect();
-        kc.set_cb_grad::<OptimizationProblemCallback<R, P, N>>(
-            &mut cb, &vars, &jac_cons, &jac_vars, None,
-        )?;
-
-        // Solve (MI)NLP
-        kc.solve()?;
-
-        let t = kc.get_obj_value()?;
-        let y = index_structure_vars.map(|y| kc.get_var_primal_values(&y).unwrap());
-        let x = kc.get_var_primal_values(&index_process_vars)?;
-
-        Ok((t, x, y))
     }
 
-    pub fn solve_target(
-        &mut self,
-        x0: &[f64],
-        options: Option<&str>,
-    ) -> Result<(f64, Vec<f64>, [Vec<f64>; N]), KnitroError> {
-        self.solve(Some(x0), None, options, true)
-    }
-
-    pub fn solve_knitro_once(
-        &mut self,
-        x0: &[f64],
-        y0: Option<&[Vec<f64>; N]>,
-        options: Option<&str>,
-    ) -> Result<OptimizationResult, KnitroError> {
-        let (t, x, y) = self.solve(Some(x0), y0, options, false)?;
-
-        let (y, smiles) = self.smiles(&y);
-        // println!("{t} {y:?} {x:?}");
-        Ok(OptimizationResult::new(t, smiles, x, y))
-    }
-
-    pub fn solve_knitro(
-        &mut self,
-        x0: &[f64],
-        y0: Option<&[Vec<f64>; N]>,
-        n_solutions: usize,
-        options: Option<&str>,
+    fn add_oa_cuts(
+        &self,
+        constraints: &mut Vec<LinearConstraint>,
+        x: SVector<Variable, N_X>,
+        y: SMatrix<Variable, N_Y1, N_Y2>,
+        mu: Variable,
+        result: &OptimizationResult<N_X, N_Y1, N_Y2>,
+        zero_tol: f64,
     ) {
-        for k in 0..n_solutions {
-            match self.solve_knitro_once(x0, y0, options) {
-                Ok(result) => {
-                    self.solutions.insert(result.clone());
-                    let mut solutions: Vec<_> = self.solutions.iter().collect();
-                    solutions.sort_by(|s1, s2| s1.target.total_cmp(&s2.target));
-                    println!("\nRun {}", k + 1);
-                    for (k, solution) in solutions.into_iter().enumerate() {
-                        let k = if solution == &result || solution.target < result.target {
-                            format!("{:3}", k + 1)
-                        } else {
-                            "   ".into()
-                        };
-                        println!(
-                            "{k} {:.7} {:?} {:?} {:?}",
-                            solution.target, solution.y, solution.smiles, solution.x
-                        );
+        let (f, grad_x, grad_y) = &result.objective;
+        let con = &result.constraints;
+
+        let y_expr = y.iter().zip(result.y.data.0[0]).zip(grad_y.data.0[0]);
+        let x_expr = x.iter().zip(result.x.data.0[0]).zip(grad_x.data.0[0]);
+        let expr: Expression = y_expr.chain(x_expr).map(|((&x, x0), j)| (x - x0) * j).sum();
+        constraints.push(constraint!(expr + *f <= mu));
+
+        for ((constraint, (c, jac_y, jac_x)), &l) in self
+            .minlp
+            .constraints()
+            .into_iter()
+            .zip(con)
+            .zip(result.lambda.iter())
+        {
+            match constraint {
+                GeneralConstraint::Equality(eq) => {
+                    let sign = 1f64.copysign(-l);
+                    let y_expr = y.iter().zip(result.y.data.0[0]).zip(jac_y.data.0[0]);
+                    let x_expr = x.iter().zip(result.x.data.0[0]).zip(jac_x.data.0[0]);
+                    let expr: Expression =
+                        y_expr.chain(x_expr).map(|((&x, x0), j)| (x - x0) * j).sum();
+                    constraints.push(constraint!(expr * sign + *c <= eq));
+                }
+                GeneralConstraint::Inequality(lo, up) => {
+                    if let Some(up) = up {
+                        // Check if constraint is active
+                        if up - c < zero_tol {
+                            let y_expr = y.iter().zip(result.y.data.0[0]).zip(jac_y.data.0[0]);
+                            let x_expr = x.iter().zip(result.x.data.0[0]).zip(jac_x.data.0[0]);
+                            let expr: Expression =
+                                y_expr.chain(x_expr).map(|((&x, x0), j)| (x - x0) * j).sum();
+                            constraints.push(constraint!(expr + *c <= up));
+                        }
+                    }
+                    if let Some(lo) = lo {
+                        // Check if constraint is active
+                        if c - lo < zero_tol {
+                            let y_expr = y.iter().zip(result.y.data.0[0]).zip(jac_y.data.0[0]);
+                            let x_expr = x.iter().zip(result.x.data.0[0]).zip(jac_x.data.0[0]);
+                            let expr: Expression =
+                                y_expr.chain(x_expr).map(|((&x, x0), j)| (x - x0) * j).sum();
+                            constraints.push(constraint!(expr + *c >= lo));
+                        }
                     }
                 }
-                Err(e) => println!("\nRun {}\n{e}", k + 1),
             }
         }
+    }
+
+    fn add_integer_cut(constraints: &mut Vec<LinearConstraint>, s: &[Variable], s0: &[f64]) {
+        let expr = s.iter().zip(s0).map(|(&s, &s0)| s - 2.0 * s0 * s + s0);
+        constraints.push(constraint!(expr.sum::<Expression>() >= 1.0));
+    }
+
+    #[expect(clippy::type_complexity)]
+    pub fn solve_milp<S: Solver>(
+        &mut self,
+        solver: S,
+        oa_cuts: &[String],
+        zero_tol: f64,
+    ) -> Result<(SMatrix<f64, N_Y1, N_Y2>, Vec<f64>), <S::Model as SolverModel>::Error> {
+        let mut model = ProblemVariables::new();
+        let mut constraints = Vec::new();
+
+        // binary variables for integer cuts
+        let mut s = Vec::new();
+
+        // discrete variables
+        let y = self.minlp.y_variables().map(|(l, u)| {
+            let y = model.add(variable().integer().bounds(l..u));
+
+            // add binary variables for integer cuts
+            let vars = model.add_vector(variable().binary(), (u - l) as usize);
+            for vars in vars.windows(2) {
+                constraints.push(constraint!(vars[0] >= vars[1]));
+            }
+            constraints.push(constraint!(l + vars.iter().sum::<Expression>() == y));
+            s.extend_from_slice(&vars);
+
+            y
+        });
+
+        // linear constraints
+        constraints.append(&mut self.minlp.linear_constraints(y));
+
+        // process variables
+        let x = self
+            .minlp
+            .x_variables()
+            .map(|(l, u, _)| model.add(variable().bounds(l..u)));
+
+        // epigraph variable
+        let mu = model.add_variable();
+
+        // integer cuts
+        for solution in &self.excluded_solutions {
+            Self::add_integer_cut(&mut constraints, &s, solution);
+        }
+
+        // OA cuts
+        for key in oa_cuts {
+            let solution = &self.known_solutions[key];
+            self.add_oa_cuts(&mut constraints, x, y, mu, solution, zero_tol);
+        }
+
+        // setup solver
+        let mut model = model.minimise(mu).using(solver);
+
+        // add constraints
+        constraints.into_iter().for_each(|c| {
+            model.add_constraint(c);
+        });
+
+        // solve MILP
+        model.solve().map(|solution| {
+            let y = y.map(|y| solution.value(y).round());
+            let s: Vec<_> = s.iter().map(|s| solution.value(*s).round()).collect();
+
+            (y, s)
+        })
+    }
+
+    fn calculate_s(&self, y: SMatrix<f64, N_Y1, N_Y2>) -> Vec<f64> {
+        let mut s = Vec::new();
+        self.minlp
+            .y_variables()
+            .iter()
+            .zip(y.iter())
+            .for_each(|(&(l, u), &y)| {
+                s.extend_from_slice(&vec![1.0; y as usize - l as usize]);
+                s.extend_from_slice(&vec![0.0; u as usize - y as usize]);
+            });
+        s
+    }
+
+    pub fn solve<S>(
+        &mut self,
+        y_init: SMatrix<f64, N_Y1, N_Y2>,
+        solver: &S,
+        options: &OptimizationOptions,
+    ) -> Vec<String>
+    where
+        for<'b> &'b S: Solver,
+    {
+        // Solve the process for the initial structure. Has to converge!
+        let s_init = self.calculate_s(y_init);
+        self.excluded_solutions
+            .extend(self.minlp.exclude_solutions(&s_init));
+        let result = self
+            .solve_nlp_with_options(y_init, s_init, &options.nlp_options)
+            .expect("The optimization did not converge for the initial structure!");
+        println!(
+            "{:8.5} {:.5?} {}",
+            result.objective.0, result.x.data.0[0], result.key
+        );
+
+        // Initialize the list of found structures in this run
+        let mut new_solutions = vec![result.key.clone()];
+
+        // objective value of the previous structure
+        let mut last = result.objective.0;
+
+        for k in 0..options.max_iter {
+            // Solve for a new structure
+            let (y, s) = match self.solve_milp(solver, &new_solutions, options.zero_tol) {
+                Ok(result) => result,
+                Err(e) => {
+                    // No new structure found -> exit run
+                    println!("{e}");
+                    return new_solutions;
+                }
+            };
+            // Exclude the found structure and all symmetric structures from future runs
+            self.excluded_solutions
+                .extend(self.minlp.exclude_solutions(&s));
+
+            // Solve the process for the current structure
+            if let Some(result) = self.solve_nlp_with_options(y, s, &options.nlp_options) {
+                println!(
+                    "{:8.5} {:.5?} {}",
+                    result.objective.0, result.x.data.0[0], result.key
+                );
+                let obj = result.objective.0;
+                new_solutions.push(result.key.clone());
+
+                // Exit after at least min_iter iterations and on non-improving objective
+                if obj > last && k >= options.min_iter {
+                    return new_solutions;
+                }
+                last = obj;
+            } else {
+                println!("{} not converged!", self.minlp.y_to_string(&y));
+            }
+        }
+
+        new_solutions
+    }
+
+    pub fn solve_ranking<S>(
+        mut self,
+        y_init: SMatrix<f64, N_Y1, N_Y2>,
+        solver: S,
+        runs: usize,
+        options: &OptimizationOptions,
+    ) -> Vec<OptimizationResult<N_X, N_Y1, N_Y2>>
+    where
+        for<'b> &'b S: Solver,
+    {
+        // let mut old_solutions = Vec::new();
+        let key_init = self.minlp.y_to_string(&y_init);
+        for k in 0..runs {
+            println!("\nStarting run {}", k + 1);
+
+            // Calculate a new set of solutions
+            let new_solutions = self.solve(y_init, &solver, options);
+            let new_solutions: HashSet<_> = new_solutions.into_iter().collect();
+
+            // Calculate a sorted list of all solutions
+            let mut all_solutions: Vec<_> = self.known_solutions.values().collect();
+            all_solutions.sort_by(|&s1, &s2| s1.objective.0.total_cmp(&s2.objective.0));
+
+            // Print the results
+            println!("\nRanking after run {}", k + 1);
+            for (k, solution) in all_solutions.into_iter().enumerate() {
+                let s = self.minlp.y_to_string(&solution.y);
+                let known = if solution.key == key_init {
+                    "+"
+                } else if new_solutions.contains(&solution.key) {
+                    "*"
+                } else {
+                    " "
+                };
+                println!(
+                    "{:3}{known} {:10.7} {:.5?} {s}",
+                    k + 1,
+                    solution.objective.0,
+                    solution.x.data.0[0]
+                );
+            }
+        }
+
+        self.known_solutions.into_values().collect()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::convert::Infallible;
+
+    use good_lp::highs;
+
+    use super::*;
+
+    struct TestMINLP;
+
+    impl MixedIntegerNonLinearProgram<2, 3, 1> for TestMINLP {
+        type Error = Infallible;
+
+        fn x_variables(&self) -> SVector<(f64, f64, f64), 2> {
+            SVector::from([(0.0, 10.0, 5.0), (0.0, 10.0, 5.0)])
+        }
+
+        fn y_variables(&self) -> SVector<(i32, i32), 3> {
+            SVector::from([(0, 1); 3])
+        }
+
+        fn linear_constraints(&self, y: SVector<Variable, 3>) -> Vec<LinearConstraint> {
+            vec![constraint!(-y[0] - y[1] + y[2] <= 0.0)]
+        }
+
+        fn constraints(&self) -> Vec<GeneralConstraint> {
+            vec![
+                GeneralConstraint::Equality(1.25),
+                GeneralConstraint::Equality(3.0),
+                GeneralConstraint::Inequality(None, Some(1.6)),
+                GeneralConstraint::Inequality(None, Some(3.0)),
+            ]
+        }
+
+        fn evaluate<D: DualNum<f64> + Copy>(
+            &self,
+            x: SVector<D, 2>,
+            y: SVector<D, 3>,
+        ) -> Result<(D, Vec<D>), Self::Error> {
+            let [x1, x2] = x.data.0[0];
+            let [y1, y2, y3] = y.data.0[0];
+            let c1 = x1 * x1 + y1;
+            let c2 = x2.powf(1.5) + y2 * 1.5;
+            let c4 = x1 + y1;
+            let c5 = x2 * 1.333 + y2;
+            let obj = x1 * 2.0 + x2 * 3.0 + y1 * 1.5 + y2 * 2.0 - y3 * 0.5;
+            Ok((obj, vec![c1, c2, c4, c5]))
+        }
+
+        fn y_to_string(&self, y: &SMatrix<f64, 3, 1>) -> String {
+            format!("{:.1?}", y.data.0[0])
+        }
+    }
+
+    #[test]
+    fn test_minlp_highs() {
+        let minlp = OuterApproximation::new(&TestMINLP);
+        minlp.solve_ranking(SVector::from([0.0; 3]), &highs, 1, &Default::default());
     }
 }
