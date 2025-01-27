@@ -27,8 +27,7 @@ serde = "1.0"
 [dev-dependencies]
 approx = "0.5"
 itertools = "0.14"
-good_lp = { version = "1.11", features = ["highs"], default-features = false }
 
 [features]
-default = []
+default = ["highs"]
 highs = ["good_lp/highs"]
