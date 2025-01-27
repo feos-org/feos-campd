@@ -1,127 +1,136 @@
-use std::array;
-use std::iter::Sum;
-use std::ops::{Add, AddAssign, Mul};
+use num_dual::DualNum;
+use std::iter::Product;
+use std::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign};
+use std::slice::Iter;
 
-#[derive(Clone, Debug, PartialEq)]
-#[allow(clippy::type_complexity)]
-pub struct Polynomial2<const M: usize, const N: usize>(
-    pub [[(Vec<Vec<isize>>, Vec<isize>, isize); N]; M],
-);
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Polynomial2<D, const M: usize, const N: usize>([[D; N]; M]);
+pub type Polynomial<D, const N: usize> = Polynomial2<D, 1, N>;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Polynomial<const N: usize>(pub [(Vec<isize>, isize); N]);
-
-#[derive(Clone, Copy, Debug)]
-pub enum Variable {
-    Const(isize),
-    Var(i32),
-}
-
-impl<const N: usize> Polynomial<N> {
-    pub fn zero(variables: usize) -> Self {
-        Self(array::from_fn(|_| (vec![0; variables], 0)))
-    }
-
-    pub fn new(variables: usize, p: [Variable; N]) -> Self {
-        let mut coefs = Self::zero(variables).0;
-        for i in 0..N {
-            match p[i] {
-                Variable::Const(c) => coefs[i].1 += c,
-                Variable::Var(p) => coefs[i].0[p as usize] += 1,
-            }
-            if i + 1 < N {
-                match p[i + 1] {
-                    Variable::Const(c) => coefs[i].1 -= c,
-                    Variable::Var(p) => coefs[i].0[p as usize] -= 1,
-                }
-            }
-        }
-        Self(coefs)
-    }
-
-    pub fn upgrade<const X: usize>(self) -> Polynomial<X> {
-        let variables = self.0[0].0.len();
-        Polynomial(array::from_fn(|i| {
-            if i + N >= X {
-                self.0[i + N - X].clone()
-            } else {
-                (vec![0; variables], 0)
-            }
-        }))
+impl<D: DualNum<f64> + Copy> Polynomial<D, 2> {
+    pub fn new(p: D) -> Self {
+        Polynomial2([[D::from(1.0) - p, p]])
     }
 }
 
-impl<const M: usize, const N: usize> Polynomial2<M, N> {
-    pub fn zero(variables: usize) -> Self {
-        Self(array::from_fn(|_| {
-            array::from_fn(|_| (vec![vec![0; variables]; variables], vec![0; variables], 0))
-        }))
+impl<D: DualNum<f64> + Copy, const M: usize, const N: usize> Polynomial2<D, M, N> {
+    pub fn zero() -> Self {
+        Polynomial2([[D::zero(); N]; M])
     }
 }
 
-impl<const N: usize> Add for Polynomial<N> {
+impl<D: DualNum<f64> + Copy, const N: usize> Polynomial<D, N> {
+    fn one() -> Self {
+        let mut one = Self::zero();
+        one[0] = D::one();
+        one
+    }
+
+    pub fn sum(&self) -> D {
+        self.0[0].into_iter().sum()
+    }
+
+    pub fn iter(&self) -> Iter<D> {
+        self.0[0].iter()
+    }
+}
+
+impl<D: DualNum<f64> + Copy, const N: usize> Index<usize> for Polynomial<D, N> {
+    type Output = D;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[0][index]
+    }
+}
+
+impl<D: DualNum<f64> + Copy, const N: usize> IndexMut<usize> for Polynomial<D, N> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[0][index]
+    }
+}
+
+impl<D: DualNum<f64> + Copy, const M: usize, const N: usize> Index<(usize, usize)>
+    for Polynomial2<D, M, N>
+{
+    type Output = D;
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        let (i, j) = index;
+        &self.0[i][j]
+    }
+}
+
+impl<D: DualNum<f64> + Copy, const M: usize, const N: usize> Add for Polynomial2<D, M, N> {
     type Output = Self;
     fn add(mut self, other: Self) -> Self {
-        self += &other;
+        self += other;
         self
     }
 }
 
-impl<const N: usize> AddAssign<&Polynomial<N>> for Polynomial<N> {
-    fn add_assign(&mut self, other: &Self) {
-        for i in 0..N {
-            for (s, &o) in self.0[i].0.iter_mut().zip(&other.0[i].0) {
-                *s += o;
-            }
-            self.0[i].1 += other.0[i].1;
-        }
-    }
-}
-
-impl<const M: usize, const N: usize> AddAssign for Polynomial2<M, N> {
+impl<D: DualNum<f64> + Copy, const M: usize, const N: usize> AddAssign for Polynomial2<D, M, N> {
     fn add_assign(&mut self, other: Self) {
         for i in 0..M {
             for j in 0..N {
-                for (s, o) in self.0[i][j].0.iter_mut().zip(&other.0[i][j].0) {
-                    for (s, &o) in s.iter_mut().zip(o) {
-                        *s += o;
-                    }
-                }
-                for (s, o) in self.0[i][j].1.iter_mut().zip(&other.0[i][j].1) {
-                    *s += o;
-                }
-                self.0[i][j].2 += other.0[i][j].2
+                self.0[i][j] += other.0[i][j]
             }
         }
     }
 }
 
-impl<const N: usize> Sum for Polynomial<N> {
-    fn sum<I: Iterator<Item = Polynomial<N>>>(iter: I) -> Self {
-        iter.reduce(|a, b| a + b).unwrap()
+impl<D: DualNum<f64> + Copy, const N: usize> Mul<Polynomial<D, 2>> for Polynomial<D, N> {
+    type Output = Self;
+    fn mul(self, other: Polynomial<D, 2>) -> Self {
+        let [[b0, b1]] = other.0;
+        let mut res = self * b0;
+        for i in 1..N {
+            res[i] += self[i - 1] * b1;
+        }
+        res
     }
 }
 
-impl<const M: usize, const N: usize> Mul<Polynomial<N>> for Polynomial<M> {
-    type Output = Polynomial2<M, N>;
-    fn mul(self, other: Polynomial<N>) -> Polynomial2<M, N> {
-        Polynomial2(array::from_fn(|i| {
-            array::from_fn(|j| {
-                (
-                    self.0[i]
-                        .0
-                        .iter()
-                        .map(|&a| other.0[j].0.iter().map(|&b| a * b).collect())
-                        .collect(),
-                    self.0[i]
-                        .0
-                        .iter()
-                        .zip(&other.0[j].0)
-                        .map(|(&a, &b)| a * other.0[j].1 + self.0[i].1 * b)
-                        .collect(),
-                    self.0[i].1 * other.0[j].1,
-                )
-            })
-        }))
+impl<D: DualNum<f64> + Copy, const M: usize, const N: usize> Mul<D> for Polynomial2<D, M, N> {
+    type Output = Self;
+    fn mul(mut self, other: D) -> Self {
+        self *= other;
+        self
+    }
+}
+
+impl<D: DualNum<f64> + Copy, const M: usize, const N: usize> MulAssign<D> for Polynomial2<D, M, N> {
+    fn mul_assign(&mut self, other: D) {
+        for i in 0..M {
+            for j in 0..N {
+                self.0[i][j] *= other
+            }
+        }
+    }
+}
+
+impl<D: DualNum<f64> + Copy, const N: usize> Product<Polynomial<D, 2>> for Polynomial<D, N> {
+    fn product<I: Iterator<Item = Polynomial<D, 2>>>(iter: I) -> Self {
+        iter.fold(Self::one(), |acc, a| acc * a)
+    }
+}
+
+impl<D: DualNum<f64> + Copy, const M: usize> Polynomial<D, M> {
+    pub fn outer_product<const N: usize>(self, other: Polynomial<D, N>) -> Polynomial2<D, M, N> {
+        let mut mat = [[D::zero(); N]; M];
+        for i in 0..M {
+            for j in 0..N {
+                mat[i][j] = self[i] * other[j]
+            }
+        }
+        Polynomial2(mat)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_mul() {
+        let p1 = Polynomial2([[1.0, 2.0]]);
+        let p2 = Polynomial2([[4.0, 5.0, 6.0]]);
+        assert_eq!(p2 * p1, Polynomial2([[4.0, 13.0, 16.0]]));
     }
 }

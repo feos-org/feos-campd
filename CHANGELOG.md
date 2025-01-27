@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-01-27
+### Changed
+- Completely revamped the library, by switching from Knitro to open-source solvers and using automatic implicit differentiation for the calculation of Jacobians and Hessians.
+
 ## [0.2.1] - 2024-06-28
 ### Fixed
 - Fix bug in OptimizationProblem::build_eos in https://github.com/feos-org/feos-campd/pull/3
