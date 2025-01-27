@@ -9,7 +9,7 @@ mod molecule;
 mod process;
 mod property;
 mod solver;
-pub use molecule::{CoMTCAMD, MolecularRepresentation, SuperMolecule};
+pub use molecule::{CoMTCAMD, Disjunction, MolecularRepresentation, SuperMolecule};
 pub use process::{ContinuousVariable, ProcessModel};
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
 pub use solver::{

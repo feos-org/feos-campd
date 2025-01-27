@@ -4,6 +4,7 @@ use good_lp::{constraint, Constraint, Expression, Variable};
 use num_dual::DualNum;
 use std::collections::HashMap;
 
+/// A combination of different molecule superstructures.
 #[derive(Clone)]
 pub struct Disjunction<const N: usize>(pub [SuperMolecule; N]);
 
