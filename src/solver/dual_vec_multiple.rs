@@ -11,16 +11,16 @@ use std::ops::{
 
 /// A vector dual number for the calculations of gradients or Jacobians.
 #[derive(Clone, Debug)]
-pub struct DualVecMult<T: DualNum<F>, F, D1: Dim, D2: Dim, N: Dim>
+pub struct DualVecMult<T: DualNum<F>, F, N1: Dim, N2: Dim, N: Dim>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
     /// Real part of the dual number
     pub re: T,
     /// Derivative part of the dual number
-    pub eps1: Derivative<T, F, D1, N>,
+    pub eps1: Derivative<T, F, N1, N>,
     /// Derivative part of the dual number
-    pub eps2: Derivative<T, F, D2, U1>,
+    pub eps2: Derivative<T, F, N2, U1>,
     f: PhantomData<F>,
 }
 
@@ -32,13 +32,13 @@ impl<T: DualNum<F> + Copy, F: Copy, const N1: usize, const N2: usize, const N: u
 {
 }
 
-impl<T: DualNum<F>, F, D1: Dim, D2: Dim, N: Dim> DualVecMult<T, F, D1, D2, N>
+impl<T: DualNum<F>, F, N1: Dim, N2: Dim, N: Dim> DualVecMult<T, F, N1, N2, N>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
     /// Create a new dual number from its fields.
     #[inline]
-    pub fn new(re: T, eps1: Derivative<T, F, D1, N>, eps2: Derivative<T, F, D2, U1>) -> Self {
+    pub fn new(re: T, eps1: Derivative<T, F, N1, N>, eps2: Derivative<T, F, N2, U1>) -> Self {
         Self {
             re,
             eps1,
@@ -48,9 +48,9 @@ where
     }
 }
 
-impl<T: DualNum<F> + Zero, F, D1: Dim, D2: Dim, N: Dim> DualVecMult<T, F, D1, D2, N>
+impl<T: DualNum<F> + Zero, F, N1: Dim, N2: Dim, N: Dim> DualVecMult<T, F, N1, N2, N>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
     /// Create a new dual number from the real part.
     #[inline]
@@ -60,9 +60,9 @@ where
 }
 
 /* chain rule */
-impl<T: DualNum<F>, F: Float, D1: Dim, D2: Dim, N: Dim> DualVecMult<T, F, D1, D2, N>
+impl<T: DualNum<F>, F: Float, N1: Dim, N2: Dim, N: Dim> DualVecMult<T, F, N1, N2, N>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
     #[inline]
     fn chain_rule(&self, f0: T, f1: T) -> Self {
@@ -71,14 +71,14 @@ where
 }
 
 /* product rule */
-impl<T: DualNum<F>, F: Float, D1: Dim, D2: Dim, N: Dim> Mul<&DualVecMult<T, F, D1, D2, N>>
-    for &DualVecMult<T, F, D1, D2, N>
+impl<T: DualNum<F>, F: Float, N1: Dim, N2: Dim, N: Dim> Mul<&DualVecMult<T, F, N1, N2, N>>
+    for &DualVecMult<T, F, N1, N2, N>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
-    type Output = DualVecMult<T, F, D1, D2, N>;
+    type Output = DualVecMult<T, F, N1, N2, N>;
     #[inline]
-    fn mul(self, other: &DualVecMult<T, F, D1, D2, N>) -> Self::Output {
+    fn mul(self, other: &DualVecMult<T, F, N1, N2, N>) -> Self::Output {
         DualVecMult::new(
             self.re.clone() * other.re.clone(),
             &self.eps1 * other.re.clone() + &other.eps1 * self.re.clone(),
@@ -88,14 +88,14 @@ where
 }
 
 /* quotient rule */
-impl<T: DualNum<F>, F: Float, D1: Dim, D2: Dim, N: Dim> Div<&DualVecMult<T, F, D1, D2, N>>
-    for &DualVecMult<T, F, D1, D2, N>
+impl<T: DualNum<F>, F: Float, N1: Dim, N2: Dim, N: Dim> Div<&DualVecMult<T, F, N1, N2, N>>
+    for &DualVecMult<T, F, N1, N2, N>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
-    type Output = DualVecMult<T, F, D1, D2, N>;
+    type Output = DualVecMult<T, F, N1, N2, N>;
     #[inline]
-    fn div(self, other: &DualVecMult<T, F, D1, D2, N>) -> DualVecMult<T, F, D1, D2, N> {
+    fn div(self, other: &DualVecMult<T, F, N1, N2, N>) -> DualVecMult<T, F, N1, N2, N> {
         let inv = other.re.recip();
         let inv2 = inv.clone() * inv.clone();
         DualVecMult::new(
@@ -107,9 +107,9 @@ where
 }
 
 /* string conversions */
-impl<T: DualNum<F>, F, D1: Dim, D2: Dim, N: Dim> fmt::Display for DualVecMult<T, F, D1, D2, N>
+impl<T: DualNum<F>, F, N1: Dim, N2: Dim, N: Dim> fmt::Display for DualVecMult<T, F, N1, N2, N>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.re)?;
@@ -118,15 +118,15 @@ where
     }
 }
 
-impl_first_derivatives!(DualVecMult, [eps1, eps2], [D1, D2, N], [D1, N]);
-impl_dual!(DualVecMult, [eps1, eps2], [D1, D2, N], [D1, N]);
+impl_first_derivatives!(DualVecMult, [eps1, eps2], [N1, N2, N], [N1, N]);
+impl_dual!(DualVecMult, [eps1, eps2], [N1, N20000, N], [N1, N]);
 
 /// Comparisons are only made based on the real part. This allows the code to follow the
 /// same execution path as real-valued code would.
-impl<T: DualNum<F> + PartialEq, F: Float, D1: Dim, D2: Dim, N: Dim> PartialEq
-    for DualVecMult<T, F, D1, D2, N>
+impl<T: DualNum<F> + PartialEq, F: Float, N1: Dim, N2: Dim, N: Dim> PartialEq
+    for DualVecMult<T, F, N1, N2, N>
 where
-    DefaultAllocator: Allocator<D1, N> + Allocator<D2>,
+    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {

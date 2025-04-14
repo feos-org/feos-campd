@@ -32,7 +32,7 @@ impl<const N: usize> Disjunction<N> {
             .zip(c)
             .filter(|(_, &c)| c == 1.0)
             .map(|(m, _)| m.smiles(y))
-            .last()
+            .next_back()
             .unwrap()
     }
 }
