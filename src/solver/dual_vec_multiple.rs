@@ -118,8 +118,8 @@ where
     }
 }
 
-impl_first_derivatives!(DualVecMult, [eps1, eps2], [N1, N2, N], [N1, N]);
-impl_dual!(DualVecMult, [eps1, eps2], [N1, N20000, N], [N1, N]);
+impl_first_derivatives!(DualVecMult, [eps1, eps2], [N1, N2, N], [N1, N], [N2]);
+impl_dual!(DualVecMult, [eps1, eps2], [N1, N2, N], [N1, N], [N2]);
 
 /// Comparisons are only made based on the real part. This allows the code to follow the
 /// same execution path as real-valued code would.

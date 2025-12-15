@@ -609,7 +609,7 @@ fn calculate_bonds<D: DualNum<f64> + Copy, const M: usize, const N: usize>(
             children
                 .iter()
                 .enumerate()
-                .filter(|&(j, _)| (j != i))
+                .filter(|&(j, _)| j != i)
                 .map(|(_, cj)| Polynomial::new(cj.sum()))
                 .product::<Polynomial<D, M>>()
                 * Polynomial::new(D::one()),

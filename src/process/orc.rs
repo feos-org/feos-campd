@@ -1,97 +1,97 @@
-use crate::{
-    process::{ContinuousVariable, GeneralConstraint, ProcessModel},
-    ChemicalRecord,
-};
-use feos_ad::{HelmholtzEnergyWrapper, PhaseEquilibriumAD, StateAD, TotalHelmholtzEnergy};
-use feos_core::{DensityInitialization, EosResult, ReferenceSystem};
-use nalgebra::SVector;
-use num_dual::DualNum;
+use crate::process::{ContinuousVariable, GeneralConstraint, ProcessModel};
+use crate::ChemicalRecord;
+use feos::core::{Contributions, DensityInitialization, FeosResult, ReferenceSystem};
+use feos::core::{PhaseEquilibrium, State, Total};
+use nalgebra::{SVector, U1};
+use num_dual::{DualNum, DualStruct};
 use quantity::{
     HeatCapacityRate, MoleFlowRate, Power, Pressure, Temperature, BAR, CELSIUS, KELVIN, KILO, MEGA,
     WATT,
 };
 
-struct PressureChanger<'a, E: TotalHelmholtzEnergy<1>, D: DualNum<f64> + Copy> {
-    inlet: &'a StateAD<'a, E, D, 1>,
-    outlet: StateAD<'a, E, D, 1>,
+struct PressureChanger<'a, E: Total<U1, D>, D: DualNum<f64> + Copy> {
+    inlet: &'a State<E, U1, D>,
+    outlet: State<E, U1, D>,
 }
 
-impl<'a, E: TotalHelmholtzEnergy<1>, D: DualNum<f64> + Copy> PressureChanger<'a, E, D> {
+impl<'a, E: Total<U1, D>, D: DualNum<f64> + Copy> PressureChanger<'a, E, D> {
     fn pump(
-        inlet: &'a StateAD<'a, E, D, 1>,
+        inlet: &'a State<E, U1, D>,
         pressure: Pressure<D>,
         efficiency: f64,
-    ) -> EosResult<Self> {
+    ) -> FeosResult<Self> {
         // calculate isentropic state
-        let state2s = StateAD::new_ps(
-            inlet.eos,
+        let state2s = State::new_nps(
+            &inlet.eos,
             pressure,
-            inlet.molar_entropy(),
-            inlet.molefracs,
-            DensityInitialization::Liquid,
-            Some(inlet.temperature.re()),
+            inlet.molar_entropy(Contributions::Total),
+            &inlet.moles,
+            Some(DensityInitialization::Liquid),
+            Some(inlet.temperature),
         )?;
 
         // calculate real state
-        let h1 = inlet.molar_enthalpy();
-        let h2s = state2s.molar_enthalpy();
+        let h1 = inlet.molar_enthalpy(Contributions::Total);
+        let h2s = state2s.molar_enthalpy(Contributions::Total);
         let h2 = h1 + (h2s - h1) / efficiency;
-        let outlet = StateAD::new_ph(
-            inlet.eos,
+        let outlet = State::new_nph(
+            &inlet.eos,
             pressure,
             h2,
-            inlet.molefracs,
-            DensityInitialization::Liquid,
-            Some(state2s.temperature.re()),
+            &inlet.moles,
+            Some(DensityInitialization::Liquid),
+            Some(state2s.temperature),
         )?;
 
         Ok(Self { inlet, outlet })
     }
 
     fn turbine(
-        inlet: &'a StateAD<'a, E, D, 1>,
+        inlet: &'a State<E, U1, D>,
         pressure: Pressure<D>,
-        vle_condenser: &PhaseEquilibriumAD<'a, E, D, 1>,
+        vle_condenser: &PhaseEquilibrium<E, 2, U1, D>,
         efficiency: f64,
-    ) -> EosResult<Self> {
+    ) -> FeosResult<Self> {
         // calculate isentropic state
-        let s1 = inlet.molar_entropy();
-        let s_v = vle_condenser.vapor.molar_entropy();
+        let s1 = inlet.molar_entropy(Contributions::Total);
+        let s_v = vle_condenser.vapor().molar_entropy(Contributions::Total);
         let h2s = if s1.re() < s_v.re() {
-            let s_l = vle_condenser.liquid.molar_entropy();
-            let h_l = vle_condenser.liquid.molar_enthalpy();
-            let h_v = vle_condenser.vapor.molar_enthalpy();
+            let s_l = vle_condenser.liquid().molar_entropy(Contributions::Total);
+            let h_l = vle_condenser.liquid().molar_enthalpy(Contributions::Total);
+            let h_v = vle_condenser.vapor().molar_enthalpy(Contributions::Total);
             let x = (s1 - s_l) / (s_v - s_l);
             h_l + x * (h_v - h_l)
         } else {
-            StateAD::new_ps(
-                inlet.eos,
+            State::new_nps(
+                &inlet.eos,
                 pressure,
                 s1,
-                inlet.molefracs,
-                DensityInitialization::Vapor,
-                Some(inlet.temperature.re()),
+                &inlet.moles,
+                Some(DensityInitialization::Vapor),
+                Some(inlet.temperature),
             )?
-            .molar_enthalpy()
+            .molar_enthalpy(Contributions::Total)
         };
 
         // calculate real state
-        let h1 = inlet.molar_enthalpy();
+        let h1 = inlet.molar_enthalpy(Contributions::Total);
         let h2 = h1 + (h2s - h1) * efficiency;
-        let outlet = StateAD::new_ph(
-            inlet.eos,
+        let outlet = State::new_nph(
+            &inlet.eos,
             pressure,
             h2,
-            inlet.molefracs,
-            DensityInitialization::Vapor,
-            Some(inlet.temperature.re()),
+            &inlet.moles,
+            Some(DensityInitialization::Vapor),
+            Some(inlet.temperature),
         )?;
 
         Ok(Self { inlet, outlet })
     }
 
     fn power(&self, flow_rate: MoleFlowRate<D>) -> Power<D> {
-        flow_rate * (self.outlet.molar_enthalpy() - self.inlet.molar_enthalpy())
+        flow_rate
+            * (self.outlet.molar_enthalpy(Contributions::Total)
+                - self.inlet.molar_enthalpy(Contributions::Total))
     }
 }
 
@@ -110,7 +110,7 @@ pub struct OrganicRankineCycle {
     dt_cool: Temperature,
 }
 
-impl<E: TotalHelmholtzEnergy<1>> ProcessModel<E, 3, 1> for OrganicRankineCycle {
+impl ProcessModel<3, 1> for OrganicRankineCycle {
     fn variables(&self) -> [ContinuousVariable; 3] {
         [
             ContinuousVariable::new(298.15 / 300.0, 400.15 / 300.0, 1.0),
@@ -138,12 +138,12 @@ impl<E: TotalHelmholtzEnergy<1>> ProcessModel<E, 3, 1> for OrganicRankineCycle {
         ]
     }
 
-    fn evaluate<D: DualNum<f64> + Copy>(
+    fn evaluate<E: Total<U1, D>, D: DualNum<f64> + Copy>(
         &self,
-        eos: &HelmholtzEnergyWrapper<E, D, 1>,
+        eos: &E,
         _: [&ChemicalRecord<D>; 1],
         x: [D; 3],
-    ) -> EosResult<(D, Vec<D>)> {
+    ) -> FeosResult<(D, Vec<D>)> {
         // unpack process variables
         let [t_cond, t_evap, dt_sh] = x;
         let t_cond = Temperature::from_reduced(t_cond * 300.0);
@@ -152,28 +152,35 @@ impl<E: TotalHelmholtzEnergy<1>> ProcessModel<E, 3, 1> for OrganicRankineCycle {
         let molefracs = SVector::from([D::one()]);
 
         // calculate isobars
-        let (vle_cond, p_cond) = PhaseEquilibriumAD::new_t(eos, t_cond)?;
-        let (vle_evap, p_evap) = PhaseEquilibriumAD::new_t(eos, t_evap)?;
+        let (p_cond, vle_cond) = PhaseEquilibrium::pure_t(eos, t_cond, None, Default::default())?;
+        let vle_cond = PhaseEquilibrium(
+            vle_cond.map(|r| State::new_intensive(eos, t_cond, r, &molefracs).unwrap()),
+        );
+        let (p_evap, vle_evap) = PhaseEquilibrium::pure_t(eos, t_evap, None, Default::default())?;
+        let vle_evap = PhaseEquilibrium(
+            vle_evap.map(|r| State::new_intensive(eos, t_evap, r, &molefracs).unwrap()),
+        );
 
         // calculate pump
-        let pump = PressureChanger::pump(&vle_cond.liquid, p_evap, self.eta_sp)?;
+        let pump = PressureChanger::pump(vle_cond.liquid(), p_evap, self.eta_sp)?;
 
         // calculate superheating
-        let turbine_in = StateAD::new_tp(
+        let turbine_in = State::new_xpt(
             eos,
             t_evap + dt_sh,
             p_evap,
-            molefracs,
-            DensityInitialization::Vapor,
+            &molefracs,
+            Some(DensityInitialization::Vapor),
         )?;
 
         // calculate turbine
         let turbine = PressureChanger::turbine(&turbine_in, p_cond, &vle_cond, self.eta_st)?;
 
         // calculate mass flow rate
-        let t_hs_pinch = vle_evap.liquid.temperature + self.dt_hs;
+        let t_hs_pinch = vle_evap.liquid().temperature + self.dt_hs;
         let m_wf = (t_hs_pinch - self.t_hs) * self.c_p_hs
-            / (vle_evap.liquid.molar_enthalpy() - turbine_in.molar_enthalpy());
+            / (vle_evap.liquid().molar_enthalpy(Contributions::Total)
+                - turbine_in.molar_enthalpy(Contributions::Total));
 
         // target
         let target = (pump.power(m_wf) + turbine.power(m_wf)).convert_into(MEGA * WATT);
@@ -182,15 +189,16 @@ impl<E: TotalHelmholtzEnergy<1>> ProcessModel<E, 3, 1> for OrganicRankineCycle {
         let pinch_hs = ((-turbine_in.temperature + self.t_hs) / self.dt_hs).into_value();
 
         // pinch constraint condenser
-        let h1 = vle_cond.liquid.molar_enthalpy();
-        let h2 = vle_cond.vapor.molar_enthalpy();
-        let h3 = turbine.outlet.molar_enthalpy();
+        let h1 = vle_cond.liquid().molar_enthalpy(Contributions::Total);
+        let h2 = vle_cond.vapor().molar_enthalpy(Contributions::Total);
+        let h3 = turbine.outlet.molar_enthalpy(Contributions::Total);
         let t_cool_pinch =
             (h2 - h1) / (h3 - h1) * (self.t_cool_out - self.t_cool_in) + self.t_cool_in;
         let pinch_cond = ((t_cool_pinch - t_cond) / self.dt_cool).into_value();
 
         // critical pressure
-        let p_crit = StateAD::critical_point_pure(eos)?.pressure();
+        let p_crit = State::critical_point(eos, None, None, None, Default::default())?
+            .pressure(Contributions::Total);
 
         // reduced pressure constraints
         let pr_cond = p_cond.convert_into(p_crit);
@@ -237,13 +245,13 @@ impl Default for OrganicRankineCycle {
 mod test {
     use super::*;
     use approx::assert_relative_eq;
-    use feos_ad::eos::{Joback, PcSaftPure};
-    use feos_ad::{EquationOfStateAD, ParametersAD};
-    use feos_core::EosResult;
+    use feos::core::{EquationOfState, FeosResult};
+    use feos::ideal_gas::Joback;
+    use feos::pcsaft::PcSaftPure;
     use std::collections::HashMap;
 
     #[test]
-    fn test_orc() -> EosResult<()> {
+    fn test_orc() -> FeosResult<()> {
         let pcsaft = PcSaftPure([
             1.93988,
             3.229270435095473,
@@ -261,7 +269,7 @@ mod test {
             0.000000042889999999999996,
             0.0,
         ]);
-        let eos = EquationOfStateAD::new([joback], pcsaft).wrap();
+        let eos = EquationOfState::new([joback], pcsaft);
         let x0 = [1.0, 1.2, 0.1];
 
         let orc = OrganicRankineCycle::default();

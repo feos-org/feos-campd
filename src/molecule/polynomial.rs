@@ -30,7 +30,7 @@ impl<D: DualNum<f64> + Copy, const N: usize> Polynomial<D, N> {
         self.0[0].into_iter().sum()
     }
 
-    pub fn iter(&self) -> Iter<D> {
+    pub fn iter(&self) -> Iter<'_, D> {
         self.0[0].iter()
     }
 }

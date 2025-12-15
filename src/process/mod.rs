@@ -1,6 +1,6 @@
 use crate::{solver::GeneralConstraint, ChemicalRecord};
-use feos_ad::{HelmholtzEnergyWrapper, ParametersAD};
-use feos_core::EosResult;
+use feos::core::{FeosResult, Total};
+use nalgebra::Const;
 use num_dual::DualNum;
 
 #[cfg(test)]
@@ -23,15 +23,15 @@ impl ContinuousVariable {
 }
 
 /// Generic process model to be used in an [IntegratedDesign](../IntegratedDesign).
-pub trait ProcessModel<E: ParametersAD, const N_X: usize, const N: usize> {
+pub trait ProcessModel<const N_X: usize, const N: usize> {
     fn variables(&self) -> [ContinuousVariable; N_X];
 
     fn constraints(&self) -> Vec<GeneralConstraint>;
 
-    fn evaluate<D: DualNum<f64> + Copy>(
+    fn evaluate<E: Total<Const<N>, D>, D: DualNum<f64> + Copy>(
         &self,
-        eos: &HelmholtzEnergyWrapper<E, D, N>,
+        eos: &E,
         chemical_records: [&ChemicalRecord<D>; N],
         x: [D; N_X],
-    ) -> EosResult<(D, Vec<D>)>;
+    ) -> FeosResult<(D, Vec<D>)>;
 }

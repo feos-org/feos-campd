@@ -12,17 +12,16 @@ keywords = ["process_engineering", "molecular_design", "optimization"]
 categories = ["science"]
 
 [dependencies]
-num-dual = { version = "0.11", features = ["linalg"] }
-quantity = { version = "0.10", features = ["num-dual"] }
-nalgebra = "0.33"
-feos-core = "0.8"
-ndarray = "0.16"
-feos-ad = "0.2"
+num-dual = "0.13"
+quantity = "0.12"
+nalgebra = "0.34"
+feos = { version = "0.9", features = ["pcsaft", "gc_pcsaft"] }
 num-traits = "0.2"
-good_lp = { version = "1.11", default-features = false }
-ipopt = "0.6"
-ipopt-ad = "0.1"
-serde = "1.0"
+good_lp = { version = "1", default-features = false }
+#ipopt = "0.6"
+ipopt = { git = "https://github.com/prehner/ipopt-rs", branch = "static_linking" }
+ipopt-ad = { git = "https://github.com/prehner/ipopt-ad" }
+serde = "1"
 
 [dev-dependencies]
 approx = "0.5"
