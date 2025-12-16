@@ -2,6 +2,7 @@ use feos::core::FeosError;
 use good_lp::{Constraint, Variable};
 use nalgebra::{SMatrix, SVector};
 use num_dual::DualNum;
+use quantity::MolarWeight;
 use std::array;
 use std::collections::{HashMap, HashSet};
 
@@ -20,11 +21,20 @@ pub use solver::{
 pub struct ChemicalRecord<D> {
     pub groups: HashMap<&'static str, D>,
     pub bonds: HashMap<[&'static str; 2], D>,
+    pub molar_weight: MolarWeight<D>,
 }
 
 impl<D> ChemicalRecord<D> {
-    pub fn new(groups: HashMap<&'static str, D>, bonds: HashMap<[&'static str; 2], D>) -> Self {
-        Self { groups, bonds }
+    pub fn new(
+        groups: HashMap<&'static str, D>,
+        bonds: HashMap<[&'static str; 2], D>,
+        molar_weight: MolarWeight<D>,
+    ) -> Self {
+        Self {
+            groups,
+            bonds,
+            molar_weight,
+        }
     }
 }
 

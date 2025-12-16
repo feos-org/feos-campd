@@ -248,6 +248,7 @@ mod test {
     use feos::core::{EquationOfState, FeosResult};
     use feos::ideal_gas::Joback;
     use feos::pcsaft::PcSaftPure;
+    use quantity::{GRAM, MOL};
     use std::collections::HashMap;
 
     #[test]
@@ -273,7 +274,7 @@ mod test {
         let x0 = [1.0, 1.2, 0.1];
 
         let orc = OrganicRankineCycle::default();
-        let cr = ChemicalRecord::new(HashMap::new(), HashMap::new());
+        let cr = ChemicalRecord::new(HashMap::new(), HashMap::new(), 0.0 * GRAM / MOL);
         let (obj, con) = orc.evaluate(&eos, [&cr], x0)?;
         println!("{obj} {con:?}");
 

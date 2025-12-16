@@ -1,8 +1,9 @@
 use super::polynomial::{Polynomial, Polynomial2};
-use super::{Disjunction, MolecularRepresentation};
+use super::{comt_camd::GROUPS, Disjunction, MolecularRepresentation};
 use crate::{ChemicalRecord, GeneralConstraint};
 use good_lp::{constraint, Constraint, Expression, Variable};
 use num_dual::DualNum;
+use quantity::MolarWeight;
 use std::collections::HashMap;
 use std::vec;
 
@@ -447,7 +448,12 @@ impl SuperMolecule {
                 .or_insert(D::zero()) += g
         });
 
-        ChemicalRecord::new(groups, bonds)
+        let molar_weight: D = GROUPS
+            .iter()
+            .filter_map(|g| groups.get(&g.name).map(|&c| c * g.molar_weight))
+            .sum();
+
+        ChemicalRecord::new(groups, bonds, MolarWeight::new(molar_weight * 1e-3))
     }
 
     pub fn smiles(&self, s: &[f64]) -> String {
@@ -535,7 +541,12 @@ impl SuperMolecule {
         fill_bond_map(cs, cs, &c_bonds, &mut bonds);
         fill_bond_map(cs, cds, &cd_bonds, &mut bonds);
 
-        ChemicalRecord::new(groups, bonds)
+        let molar_weight: D = GROUPS
+            .iter()
+            .filter_map(|g| groups.get(&g.name).map(|&c| c * g.molar_weight))
+            .sum();
+
+        ChemicalRecord::new(groups, bonds, MolarWeight::new(molar_weight * 1e-3))
     }
 
     fn build_alkene<D: DualNum<f64> + Copy>(&self, y: Vec<D>) -> ChemicalRecord<D> {
@@ -576,7 +587,12 @@ impl SuperMolecule {
         let dd_bonds = cd_groups[0].outer_product(cd_groups[1]);
         fill_bond_map(cds, cds, &dd_bonds, &mut bonds);
 
-        ChemicalRecord::new(groups, bonds)
+        let molar_weight: D = GROUPS
+            .iter()
+            .filter_map(|g| groups.get(&g.name).map(|&c| c * g.molar_weight))
+            .sum();
+
+        ChemicalRecord::new(groups, bonds, MolarWeight::new(molar_weight * 1e-3))
     }
 }
 
@@ -636,6 +652,7 @@ mod test {
     use super::*;
     use approx::assert_relative_eq;
     use itertools::Itertools;
+    use quantity::{GRAM, MOL};
     use std::iter;
 
     fn isomers(molecule: SuperMolecule) -> usize {
@@ -706,21 +723,33 @@ mod test {
 
     #[test]
     fn test_build() {
-        let ChemicalRecord { groups, bonds } =
-            SuperMolecule::alcohol(0, 4).build(vec![0.9, 0.8, 0.5, 0.3]);
+        let ChemicalRecord {
+            groups,
+            bonds,
+            molar_weight,
+        } = SuperMolecule::alcohol(0, 4).build(vec![0.9, 0.8, 0.5, 0.3]);
         println!("{groups:?}\n{bonds:?}");
+        assert_relative_eq!(groups["OH"], 1.0);
         assert_relative_eq!(groups["CH3"], 1.326);
         assert_relative_eq!(groups["CH2"], 0.958);
         assert_relative_eq!(groups[">CH"], 0.216);
+        assert_relative_eq!(bonds[&["OH", ">CH"]], 0.216);
+        assert_relative_eq!(bonds[&["OH", "CH2"]], 0.558);
+        assert_relative_eq!(bonds[&["OH", "CH3"]], 0.126);
         assert_relative_eq!(bonds[&["CH2", ">CH"]], 0.12);
         assert_relative_eq!(bonds[&["CH3", ">CH"]], 0.36);
         assert_relative_eq!(bonds[&["CH2", "CH2"]], 0.28);
         assert_relative_eq!(bonds[&["CH3", "CH2"]], 0.84);
+        assert_relative_eq!(molar_weight, 53.19338 * GRAM / MOL);
     }
 
     #[test]
     fn test_alcohol() {
-        let ChemicalRecord { groups, bonds } = SuperMolecule::alcohol(0, 5).build(vec![1.0; 7]);
+        let ChemicalRecord {
+            groups,
+            bonds,
+            molar_weight,
+        } = SuperMolecule::alcohol(0, 5).build(vec![1.0; 7]);
         println!("{groups:?}\n{bonds:?}");
         assert_eq!(groups["CH3"], 4.0);
         assert_eq!(groups["CH2"], 1.0);
@@ -733,11 +762,16 @@ mod test {
         assert_relative_eq!(bonds[&["CH2", ">CH"]], 1.0);
         assert_relative_eq!(bonds[&["CH3", "CH2"]], 1.0);
         assert_relative_eq!(bonds[&["OH", ">C<"]], 1.0);
+        assert_relative_eq!(molar_weight, 116.204 * GRAM / MOL)
     }
 
     #[test]
     fn test_ketone() {
-        let ChemicalRecord { groups, bonds } = SuperMolecule::ketone(0, 5).build(vec![1.0; 5]);
+        let ChemicalRecord {
+            groups,
+            bonds,
+            molar_weight,
+        } = SuperMolecule::ketone(0, 5).build(vec![1.0; 5]);
         println!("{groups:?}\n{bonds:?}");
         assert_eq!(groups["CH3"], 3.0);
         assert_eq!(groups["CH2"], 1.0);
@@ -748,11 +782,16 @@ mod test {
         assert_relative_eq!(bonds[&["CH3", "CH2"]], 1.0);
         assert_relative_eq!(bonds[&[">CH", ">C=O"]], 1.0);
         assert_relative_eq!(bonds[&["CH3", ">C=O"]], 1.0);
+        assert_relative_eq!(molar_weight, 100.161 * GRAM / MOL)
     }
 
     #[test]
     fn test_alkene() {
-        let ChemicalRecord { groups, bonds } = SuperMolecule::alkene(0, 5).build(vec![1.0; 6]);
+        let ChemicalRecord {
+            groups,
+            bonds,
+            molar_weight,
+        } = SuperMolecule::alkene(0, 5).build(vec![1.0; 6]);
         println!("{groups:?}\n{bonds:?}");
         assert_eq!(groups["CH3"], 4.0);
         assert_eq!(groups["CH2"], 1.0);
@@ -766,5 +805,6 @@ mod test {
         assert_relative_eq!(bonds[&["CH3", "=C<"]], 1.0);
         assert_relative_eq!(bonds[&["CH3", "=CH"]], 1.0);
         assert_relative_eq!(bonds[&["=C<", "=CH"]], 1.0);
+        assert_relative_eq!(molar_weight, 112.216 * GRAM / MOL)
     }
 }

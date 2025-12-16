@@ -25,6 +25,7 @@ serde = "1"
 
 [dev-dependencies]
 approx = "0.5"
+quantity = { version = "0.12", features = ["approx"] }
 itertools = "0.14"
 
 [features]
