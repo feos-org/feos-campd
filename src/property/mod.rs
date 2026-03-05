@@ -3,7 +3,7 @@ use feos::core::parameter::{BinaryRecord, SegmentRecord};
 use feos::core::{EquationOfState, FeosResult, Total};
 use feos::gc_pcsaft::{GcPcSaftAD, GcPcSaftADParameters};
 use feos::ideal_gas::Joback;
-use feos::pcsaft::{PcSaftAssociationRecord, PcSaftBinary, PcSaftPure};
+use feos::pcsaft::{PcSaftAssociationRecord, PcSaftBinary, PcSaftBinaryRecord, PcSaftPure};
 use nalgebra::Const;
 use num_dual::DualNum;
 use serde::Deserialize;
@@ -89,17 +89,18 @@ impl<const ASSOC: bool> PcSaftPropertyModel<ASSOC> {
             .filter(|(_, r)| r.na == 0.0 || ASSOC)
             .collect();
 
-        let binary_records: Option<Vec<BinaryRecord<String, f64, PcSaftAssociationRecord>>> =
-            file_binary
-                .map(|f| BinaryRecord::from_json(f))
-                .transpose()?;
+        let binary_records: Option<
+            Vec<BinaryRecord<String, PcSaftBinaryRecord, PcSaftAssociationRecord>>,
+        > = file_binary
+            .map(|f| BinaryRecord::from_json(f))
+            .transpose()?;
 
         let binary_parameters = binary_records.map(|br| {
             let mut binary_parameters = HashMap::new();
             br.into_iter().for_each(|br| {
                 if let Some(m) = br.model_record {
-                    binary_parameters.insert([br.id1.clone(), br.id2.clone()], m);
-                    binary_parameters.insert([br.id2, br.id1], m);
+                    binary_parameters.insert([br.id1.clone(), br.id2.clone()], m.k_ij);
+                    binary_parameters.insert([br.id2, br.id1], m.k_ij);
                 }
             });
             binary_parameters

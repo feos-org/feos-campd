@@ -2,7 +2,7 @@ use crate::process::{ContinuousVariable, GeneralConstraint, ProcessModel};
 use crate::ChemicalRecord;
 use feos::core::{Contributions, DensityInitialization, FeosResult, ReferenceSystem};
 use feos::core::{PhaseEquilibrium, State, Total};
-use nalgebra::{SVector, U1};
+use nalgebra::U1;
 use num_dual::{DualNum, DualStruct};
 use quantity::{
     HeatCapacityRate, MoleFlowRate, Power, Pressure, Temperature, BAR, CELSIUS, KELVIN, KILO, MEGA,
@@ -25,7 +25,7 @@ impl<'a, E: Total<U1, D>, D: DualNum<f64> + Copy> PressureChanger<'a, E, D> {
             &inlet.eos,
             pressure,
             inlet.molar_entropy(Contributions::Total),
-            &inlet.moles,
+            &inlet.molefracs,
             Some(DensityInitialization::Liquid),
             Some(inlet.temperature),
         )?;
@@ -38,7 +38,7 @@ impl<'a, E: Total<U1, D>, D: DualNum<f64> + Copy> PressureChanger<'a, E, D> {
             &inlet.eos,
             pressure,
             h2,
-            &inlet.moles,
+            &inlet.molefracs,
             Some(DensityInitialization::Liquid),
             Some(state2s.temperature),
         )?;
@@ -66,7 +66,7 @@ impl<'a, E: Total<U1, D>, D: DualNum<f64> + Copy> PressureChanger<'a, E, D> {
                 &inlet.eos,
                 pressure,
                 s1,
-                &inlet.moles,
+                &inlet.molefracs,
                 Some(DensityInitialization::Vapor),
                 Some(inlet.temperature),
             )?
@@ -80,7 +80,7 @@ impl<'a, E: Total<U1, D>, D: DualNum<f64> + Copy> PressureChanger<'a, E, D> {
             &inlet.eos,
             pressure,
             h2,
-            &inlet.moles,
+            &inlet.molefracs,
             Some(DensityInitialization::Vapor),
             Some(inlet.temperature),
         )?;
@@ -149,27 +149,22 @@ impl ProcessModel<3, 1> for OrganicRankineCycle {
         let t_cond = Temperature::from_reduced(t_cond * 300.0);
         let t_evap = Temperature::from_reduced(t_evap * 300.0);
         let dt_sh = Temperature::from_reduced(dt_sh * 50.0);
-        let molefracs = SVector::from([D::one()]);
 
         // calculate isobars
-        let (p_cond, vle_cond) = PhaseEquilibrium::pure_t(eos, t_cond, None, Default::default())?;
-        let vle_cond = PhaseEquilibrium(
-            vle_cond.map(|r| State::new_intensive(eos, t_cond, r, &molefracs).unwrap()),
-        );
-        let (p_evap, vle_evap) = PhaseEquilibrium::pure_t(eos, t_evap, None, Default::default())?;
-        let vle_evap = PhaseEquilibrium(
-            vle_evap.map(|r| State::new_intensive(eos, t_evap, r, &molefracs).unwrap()),
-        );
+        let vle_cond = PhaseEquilibrium::pure(eos, t_cond, None, Default::default())?;
+        let p_cond = vle_cond.vapor().pressure(Contributions::Total);
+        let vle_evap = PhaseEquilibrium::pure(eos, t_evap, None, Default::default())?;
+        let p_evap = vle_evap.vapor().pressure(Contributions::Total);
 
         // calculate pump
         let pump = PressureChanger::pump(vle_cond.liquid(), p_evap, self.eta_sp)?;
 
         // calculate superheating
-        let turbine_in = State::new_xpt(
+        let turbine_in = State::new_npt(
             eos,
             t_evap + dt_sh,
             p_evap,
-            &molefracs,
+            (),
             Some(DensityInitialization::Vapor),
         )?;
 
@@ -197,7 +192,7 @@ impl ProcessModel<3, 1> for OrganicRankineCycle {
         let pinch_cond = ((t_cool_pinch - t_cond) / self.dt_cool).into_value();
 
         // critical pressure
-        let p_crit = State::critical_point(eos, None, None, None, Default::default())?
+        let p_crit = State::critical_point(eos, (), None, None, Default::default())?
             .pressure(Contributions::Total);
 
         // reduced pressure constraints

@@ -1,6 +1,6 @@
 [package]
 name = "feos-campd"
-version = "0.3.3"
+version = "0.4.0"
 authors = ["Philipp Rehner <prehner@ethz.ch>"]
 edition = "2021"
 readme = "README.md"
@@ -12,22 +12,24 @@ keywords = ["process_engineering", "molecular_design", "optimization"]
 categories = ["science"]
 
 [dependencies]
-num-dual = "0.13"
-quantity = "0.12"
-nalgebra = "0.34"
-feos = { version = "0.9", features = ["pcsaft", "gc_pcsaft"] }
+num-dual = "0.14"
+quantity = "0.14"
+nalgebra = "0.35"
+feos = { version = "0.10", features = ["pcsaft", "gc_pcsaft"] }
 num-traits = "0.2"
 good_lp = { version = "1", default-features = false }
-#ipopt = "0.6"
-ipopt = { git = "https://github.com/prehner/ipopt-rs", branch = "static_linking" }
-ipopt-ad = { git = "https://github.com/prehner/ipopt-ad" }
+ipopt = { version = "0.6", optional = true }
+ripopt = { version = "0.8", optional = true }
+ipopt-ad = "0.3"
 serde = "1"
 
 [dev-dependencies]
 approx = "0.5"
-quantity = { version = "0.12", features = ["approx"] }
-itertools = "0.14"
+quantity = { version = "0.14", features = ["approx"] }
+itertools = "0.15"
 
 [features]
-default = ["highs"]
+default = ["highs", "ripopt"]
 highs = ["good_lp/highs"]
+ipopt = ["dep:ipopt", "ipopt-ad/ipopt"]
+ripopt = ["dep:ripopt", "ipopt-ad/ripopt"]

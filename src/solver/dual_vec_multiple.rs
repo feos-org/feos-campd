@@ -120,16 +120,3 @@ where
 
 impl_first_derivatives!(DualVecMult, [eps1, eps2], [N1, N2, N], [N1, N], [N2]);
 impl_dual!(DualVecMult, [eps1, eps2], [N1, N2, N], [N1, N], [N2]);
-
-/// Comparisons are only made based on the real part. This allows the code to follow the
-/// same execution path as real-valued code would.
-impl<T: DualNum<F> + PartialEq, F: Float, N1: Dim, N2: Dim, N: Dim> PartialEq
-    for DualVecMult<T, F, N1, N2, N>
-where
-    DefaultAllocator: Allocator<N1, N> + Allocator<N2>,
-{
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.re.eq(&other.re)
-    }
-}

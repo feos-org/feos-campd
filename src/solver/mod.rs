@@ -3,7 +3,6 @@ use good_lp::{
     constraint, variable, Constraint as LinearConstraint, Expression, ProblemVariables, Solution,
     Solver, SolverModel, Variable,
 };
-use ipopt::IpoptOption;
 use nalgebra::{DVector, SMatrix, SVector};
 use num_dual::DualNum;
 use std::collections::{HashMap, HashSet};
@@ -50,20 +49,29 @@ type Gradient<const N_X: usize, const N_Y1: usize, const N_Y2: usize> =
     (f64, SMatrix<f64, N_Y1, N_Y2>, SVector<f64, N_X>);
 
 #[derive(Clone)]
-pub struct OptimizationOptions<'a> {
+pub struct OptimizationOptions {
     pub min_iter: usize,
     pub max_iter: usize,
     pub zero_tol: f64,
-    pub nlp_options: Vec<(&'a str, IpoptOption<'a>)>,
+    #[cfg(feature = "ipopt")]
+    pub nlp_options: Vec<(&'static str, ipopt::IpoptOption<'static>)>,
+    #[cfg(feature = "ripopt")]
+    pub nlp_options: ripopt::SolverOptions,
 }
 
-impl Default for OptimizationOptions<'_> {
+impl Default for OptimizationOptions {
     fn default() -> Self {
         Self {
             min_iter: 5,
             max_iter: 50,
             zero_tol: 1e-6,
-            nlp_options: vec![("print_level", IpoptOption::Int(0))],
+            #[cfg(feature = "ipopt")]
+            nlp_options: vec![("print_level", ipopt::IpoptOption::Int(0))],
+            #[cfg(feature = "ripopt")]
+            nlp_options: ripopt::SolverOptions {
+                print_level: 0,
+                ..Default::default()
+            },
         }
     }
 }

@@ -1,3 +1,9 @@
+#[cfg(all(feature = "ipopt", feature = "ripopt"))]
+compile_error!("Features 'ipopt' and 'ripopt' cannot be enabled at the same time.");
+
+#[cfg(not(any(feature = "ipopt", feature = "ripopt")))]
+compile_error!("Either feature 'ipopt' or 'ripopt' must be enabled.");
+
 use feos::core::FeosError;
 use good_lp::{Constraint, Variable};
 use nalgebra::{SMatrix, SVector};
@@ -14,7 +20,8 @@ pub use molecule::{CoMTCAMD, Disjunction, MolecularRepresentation, SuperMolecule
 pub use process::{ContinuousVariable, ProcessModel};
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
 pub use solver::{
-    GeneralConstraint, MixedIntegerNonLinearProgram, OptimizationResult, OuterApproximation,
+    GeneralConstraint, MixedIntegerNonLinearProgram, OptimizationOptions, OptimizationResult,
+    OuterApproximation,
 };
 
 /// Input for group-contribution models that allows for derivatives.

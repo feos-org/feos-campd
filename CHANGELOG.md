@@ -6,9 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-15
+### Added
+- Included molar weight in `ChemicalRecord`.
+- Added `ripopt` as alternative to `ipopt` for solving the NLP subproblems.
+
+### Packaging
+- Updated to feos v0.10.0.
+
 ## [0.3.3] - 2025-04-14
 ### Fixed
-- Fixed a compatibility problem with the newest version of `num-dual`. [#7](https://github.com/feos-org/feos-campd/pull/7)
+- Fixed a compatibility problem with the newest version of `num-dual`.
 
 ## [0.3.2] - 2025-01-27
 ### Fixed
