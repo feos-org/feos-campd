@@ -1,7 +1,10 @@
 use crate::ChemicalRecord;
-use feos_ad::eos::{GcPcSaft, GcPcSaftParameters, Joback, PcSaftBinary, PcSaftPure};
-use feos_ad::{EquationOfStateAD, HelmholtzEnergyWrapper, ParametersAD, TotalHelmholtzEnergy};
-use feos_core::parameter::{BinaryRecord, ParameterError, SegmentRecord};
+use feos::core::parameter::{BinaryRecord, SegmentRecord};
+use feos::core::{EquationOfState, FeosResult, Total};
+use feos::gc_pcsaft::{GcPcSaftAD, GcPcSaftADParameters};
+use feos::ideal_gas::Joback;
+use feos::pcsaft::{PcSaftAssociationRecord, PcSaftBinary, PcSaftBinaryRecord, PcSaftPure};
+use nalgebra::Const;
 use num_dual::DualNum;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -9,12 +12,12 @@ use std::path::Path;
 
 /// A generic property model to be used in an [IntegratedDesign](../IntegratedDesign)
 pub trait PropertyModel<const N: usize> {
-    type EquationOfState: TotalHelmholtzEnergy<N>;
+    type EquationOfState<D: DualNum<f64> + Copy>: Total<Const<N>, D>;
 
     fn build_eos<D: DualNum<f64> + Copy>(
         &self,
         chemical_records: [&ChemicalRecord<D>; N],
-    ) -> HelmholtzEnergyWrapper<Self::EquationOfState, D, N>;
+    ) -> Self::EquationOfState<D>;
 }
 
 /// The heterosegmented gc-PC-SAFT equation of state.
@@ -22,23 +25,21 @@ pub trait PropertyModel<const N: usize> {
 pub struct GcPcSaftPropertyModel;
 
 impl<const N: usize> PropertyModel<N> for GcPcSaftPropertyModel {
-    type EquationOfState = EquationOfStateAD<Joback, GcPcSaft<N>, N>;
+    type EquationOfState<D: DualNum<f64> + Copy> =
+        EquationOfState<[Joback<D>; N], GcPcSaftAD<D, N>>;
 
     fn build_eos<D: DualNum<f64> + Copy>(
         &self,
         chemical_records: [&ChemicalRecord<D>; N],
-    ) -> HelmholtzEnergyWrapper<EquationOfStateAD<Joback, GcPcSaft<N>, N>, D, N> {
+    ) -> Self::EquationOfState<D> {
         let groups = chemical_records.map(|cr| &cr.groups);
         let bonds = chemical_records.map(|cr| &cr.bonds);
-        let gc_pcsaft_params = GcPcSaftParameters::from_groups(groups, bonds);
-        let gc_pcsaft = GcPcSaft(gc_pcsaft_params.re());
+        let gc_pcsaft_params = GcPcSaftADParameters::from_groups(groups, bonds);
+        let gc_pcsaft = GcPcSaftAD(gc_pcsaft_params);
 
-        let joback_params = groups.map(Joback::from_group_counts);
-        let joback = joback_params.map(|j| Joback(j.map(|j| j.re())));
+        let joback = groups.map(Joback::from_group_counts);
 
-        EquationOfStateAD::new(joback, gc_pcsaft)
-            .wrap()
-            .derivatives((joback_params, gc_pcsaft_params))
+        EquationOfState::new(joback, gc_pcsaft)
     }
 }
 
@@ -67,38 +68,40 @@ struct PcSaftRecord {
 }
 
 impl PcSaftPropertyModel<true> {
-    pub fn full<P: AsRef<Path>>(file: P, file_binary: Option<P>) -> Result<Self, ParameterError> {
+    pub fn full<P: AsRef<Path>>(file: P, file_binary: Option<P>) -> FeosResult<Self> {
         Self::new(file, file_binary)
     }
 }
 
 impl PcSaftPropertyModel<false> {
-    pub fn non_associating<P: AsRef<Path>>(
-        file: P,
-        file_binary: Option<P>,
-    ) -> Result<Self, ParameterError> {
+    pub fn non_associating<P: AsRef<Path>>(file: P, file_binary: Option<P>) -> FeosResult<Self> {
         Self::new(file, file_binary)
     }
 }
 
 impl<const ASSOC: bool> PcSaftPropertyModel<ASSOC> {
-    fn new<P: AsRef<Path>>(file: P, file_binary: Option<P>) -> Result<Self, ParameterError> {
-        let records: Vec<SegmentRecord<PcSaftRecord>> = SegmentRecord::from_json(file)?;
+    fn new<P: AsRef<Path>>(file: P, file_binary: Option<P>) -> FeosResult<Self> {
+        let records: Vec<SegmentRecord<PcSaftRecord, PcSaftAssociationRecord>> =
+            SegmentRecord::from_json(file)?;
         let parameters = records
             .into_iter()
             .map(|s| (s.identifier, s.model_record))
             .filter(|(_, r)| r.na == 0.0 || ASSOC)
             .collect();
 
-        let binary_records: Option<Vec<BinaryRecord<String, f64>>> = file_binary
+        let binary_records: Option<
+            Vec<BinaryRecord<String, PcSaftBinaryRecord, PcSaftAssociationRecord>>,
+        > = file_binary
             .map(|f| BinaryRecord::from_json(f))
             .transpose()?;
 
         let binary_parameters = binary_records.map(|br| {
             let mut binary_parameters = HashMap::new();
             br.into_iter().for_each(|br| {
-                binary_parameters.insert([br.id1.clone(), br.id2.clone()], br.model_record);
-                binary_parameters.insert([br.id2, br.id1], br.model_record);
+                if let Some(m) = br.model_record {
+                    binary_parameters.insert([br.id1.clone(), br.id2.clone()], m.k_ij);
+                    binary_parameters.insert([br.id2, br.id1], m.k_ij);
+                }
             });
             binary_parameters
         });
@@ -191,79 +194,71 @@ impl<const ASSOC: bool> PcSaftPropertyModel<ASSOC> {
 }
 
 impl PropertyModel<1> for PcSaftPropertyModel<true> {
-    type EquationOfState = EquationOfStateAD<Joback, PcSaftPure<8>, 1>;
+    type EquationOfState<D: DualNum<f64> + Copy> =
+        EquationOfState<[Joback<D>; 1], PcSaftPure<D, 8>>;
 
     fn build_eos<D: DualNum<f64> + Copy>(
         &self,
         [cr]: [&ChemicalRecord<D>; 1],
-    ) -> HelmholtzEnergyWrapper<Self::EquationOfState, D, 1> {
-        let joback_params = Joback::from_group_counts(&cr.groups);
-        let joback = Joback(joback_params.map(|x| x.re()));
+    ) -> Self::EquationOfState<D> {
+        let joback = Joback::from_group_counts(&cr.groups);
 
         let pcsaft_params = self.from_group_counts(&cr.groups);
-        let pcsaft = PcSaftPure(pcsaft_params.map(|x| x.re()));
+        let pcsaft = PcSaftPure(pcsaft_params);
 
-        EquationOfStateAD::new([joback], pcsaft)
-            .wrap()
-            .derivatives(([joback_params], pcsaft_params))
+        EquationOfState::new([joback], pcsaft)
     }
 }
 
 impl PropertyModel<1> for PcSaftPropertyModel<false> {
-    type EquationOfState = EquationOfStateAD<Joback, PcSaftPure<4>, 1>;
+    type EquationOfState<D: DualNum<f64> + Copy> =
+        EquationOfState<[Joback<D>; 1], PcSaftPure<D, 4>>;
 
     fn build_eos<D: DualNum<f64> + Copy>(
         &self,
         [cr]: [&ChemicalRecord<D>; 1],
-    ) -> HelmholtzEnergyWrapper<Self::EquationOfState, D, 1> {
-        let joback_params = Joback::from_group_counts(&cr.groups);
-        let joback = Joback(joback_params.map(|x| x.re()));
+    ) -> Self::EquationOfState<D> {
+        let joback = Joback::from_group_counts(&cr.groups);
 
         let pcsaft_params = self.from_group_counts(&cr.groups);
-        let pcsaft = PcSaftPure(pcsaft_params.map(|x| x.re()));
+        let pcsaft = PcSaftPure(pcsaft_params);
 
-        EquationOfStateAD::new([joback], pcsaft)
-            .wrap()
-            .derivatives(([joback_params], pcsaft_params))
+        EquationOfState::new([joback], pcsaft)
     }
 }
 
 impl PropertyModel<2> for PcSaftPropertyModel<true> {
-    type EquationOfState = EquationOfStateAD<Joback, PcSaftBinary<8>, 2>;
+    type EquationOfState<D: DualNum<f64> + Copy> =
+        EquationOfState<[Joback<D>; 2], PcSaftBinary<D, 8>>;
 
     fn build_eos<D: DualNum<f64> + Copy>(
         &self,
         chemical_records: [&ChemicalRecord<D>; 2],
-    ) -> HelmholtzEnergyWrapper<Self::EquationOfState, D, 2> {
-        let joback_params = chemical_records.map(|cr| Joback::from_group_counts(&cr.groups));
-        let joback = joback_params.map(|j| Joback(j.map(|x| x.re())));
+    ) -> Self::EquationOfState<D> {
+        let joback = chemical_records.map(|cr| Joback::from_group_counts(&cr.groups));
 
         let kij = self.kij_from_group_counts(chemical_records.map(|cr| &cr.groups));
         let pcsaft_params = chemical_records.map(|cr| self.from_group_counts(&cr.groups));
-        let pcsaft = PcSaftBinary::new(pcsaft_params.map(|p| p.map(|p| p.re())), kij.re());
+        let pcsaft = PcSaftBinary::new(pcsaft_params, kij);
 
-        EquationOfStateAD::new(joback, pcsaft)
-            .wrap()
-            .derivatives((joback_params, (pcsaft_params, kij)))
+        EquationOfState::new(joback, pcsaft)
     }
 }
 
 impl PropertyModel<2> for PcSaftPropertyModel<false> {
-    type EquationOfState = EquationOfStateAD<Joback, PcSaftBinary<4>, 2>;
+    type EquationOfState<D: DualNum<f64> + Copy> =
+        EquationOfState<[Joback<D>; 2], PcSaftBinary<D, 4>>;
 
     fn build_eos<D: DualNum<f64> + Copy>(
         &self,
         chemical_records: [&ChemicalRecord<D>; 2],
-    ) -> HelmholtzEnergyWrapper<Self::EquationOfState, D, 2> {
-        let joback_params = chemical_records.map(|cr| Joback::from_group_counts(&cr.groups));
-        let joback = joback_params.map(|j| Joback(j.map(|x| x.re())));
+    ) -> Self::EquationOfState<D> {
+        let joback = chemical_records.map(|cr| Joback::from_group_counts(&cr.groups));
 
         let kij = self.kij_from_group_counts(chemical_records.map(|cr| &cr.groups));
         let pcsaft_params = chemical_records.map(|cr| self.from_group_counts(&cr.groups));
-        let pcsaft = PcSaftBinary::new(pcsaft_params.map(|p| p.map(|p| p.re())), kij.re());
+        let pcsaft = PcSaftBinary::new(pcsaft_params, kij);
 
-        EquationOfStateAD::new(joback, pcsaft)
-            .wrap()
-            .derivatives((joback_params, (pcsaft_params, kij)))
+        EquationOfState::new(joback, pcsaft)
     }
 }

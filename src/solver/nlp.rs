@@ -1,9 +1,12 @@
 use super::dual_vec_multiple::DualSVecMult;
 use super::{Gradient, MixedIntegerNonLinearProgram, OptimizationResult, OuterApproximation};
+#[cfg(feature = "ipopt")]
 use ipopt::{Ipopt, IpoptOption, SolveStatus};
 use ipopt_ad::{ADProblem, BasicADProblem, CachedADProblem};
 use nalgebra::{Const, DVector, SMatrix, SVector, U1};
 use num_dual::{Derivative, DualNum};
+#[cfg(feature = "ripopt")]
+use ripopt::{solve, SolverOptions};
 use std::fmt::Debug;
 
 struct Nlp<'a, P, const N_Y1: usize, const N_Y2: usize> {
@@ -70,14 +73,18 @@ where
         y: SMatrix<f64, N_Y1, N_Y2>,
         s: Vec<f64>,
     ) -> Option<&OptimizationResult<N_X, N_Y1, N_Y2>> {
-        self.solve_nlp_with_options::<f64>(y, s, &[])
+        #[cfg(feature = "ipopt")]
+        return self.solve_nlp_with_options(y, s, &[]);
+        #[cfg(feature = "ripopt")]
+        self.solve_nlp_with_options(y, s, &Default::default())
     }
 
-    pub fn solve_nlp_with_options<'b, O: Into<IpoptOption<'b>> + Copy>(
+    pub fn solve_nlp_with_options(
         &mut self,
         y: SMatrix<f64, N_Y1, N_Y2>,
         s: Vec<f64>,
-        options: &[(&str, O)],
+        #[cfg(feature = "ipopt")] options: &[(&str, IpoptOption)],
+        #[cfg(feature = "ripopt")] options: &SolverOptions,
     ) -> Option<&OptimizationResult<N_X, N_Y1, N_Y2>> {
         let key = self.minlp.y_to_string(&y);
         if self.known_solutions.contains_key(&key) {
@@ -88,14 +95,34 @@ where
         let Ok(problem) = ADProblem::new_cached(optim) else {
             return None;
         };
+        #[cfg(feature = "ipopt")]
         let mut ipopt = Ipopt::new(problem).unwrap();
-        for &(s, o) in options {
-            ipopt.set_option(s, o);
-        }
-        let res = ipopt.solve();
-        if let SolveStatus::SolveSucceeded = res.status {
-            let x = SVector::from_column_slice(res.solver_data.solution.primal_variables);
-            let lambda = res.solver_data.solution.constraint_multipliers;
+        #[cfg(feature = "ipopt")]
+        let (status, x, lambda) = {
+            for &(s, o) in options {
+                ipopt.set_option(s, o);
+            }
+            let res = ipopt.solve();
+            (
+                matches!(res.status, SolveStatus::SolveSucceeded)
+                    || matches!(res.status, SolveStatus::SolvedToAcceptableLevel),
+                res.solver_data.solution.primal_variables,
+                res.solver_data.solution.constraint_multipliers,
+            )
+        };
+        #[cfg(feature = "ripopt")]
+        let res = solve(&problem, options);
+        #[cfg(feature = "ripopt")]
+        let (status, x, lambda) = {
+            (
+                matches!(res.status, ripopt::SolveStatus::Optimal)
+                    || matches!(res.status, ripopt::SolveStatus::Acceptable),
+                &res.x,
+                &res.constraint_multipliers,
+            )
+        };
+        if status {
+            let x = SVector::from_column_slice(x);
             let (objective, constraints) = Self::gradients(self.minlp, y, x);
             let result = OptimizationResult::new(
                 key.clone(),

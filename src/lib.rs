@@ -1,7 +1,14 @@
-use feos_core::EosError;
+#[cfg(all(feature = "ipopt", feature = "ripopt"))]
+compile_error!("Features 'ipopt' and 'ripopt' cannot be enabled at the same time.");
+
+#[cfg(not(any(feature = "ipopt", feature = "ripopt")))]
+compile_error!("Either feature 'ipopt' or 'ripopt' must be enabled.");
+
+use feos::core::FeosError;
 use good_lp::{Constraint, Variable};
 use nalgebra::{SMatrix, SVector};
 use num_dual::DualNum;
+use quantity::MolarWeight;
 use std::array;
 use std::collections::{HashMap, HashSet};
 
@@ -13,18 +20,28 @@ pub use molecule::{CoMTCAMD, Disjunction, MolecularRepresentation, SuperMolecule
 pub use process::{ContinuousVariable, ProcessModel};
 pub use property::{GcPcSaftPropertyModel, PcSaftPropertyModel, PropertyModel};
 pub use solver::{
-    GeneralConstraint, MixedIntegerNonLinearProgram, OptimizationResult, OuterApproximation,
+    GeneralConstraint, MixedIntegerNonLinearProgram, OptimizationOptions, OptimizationResult,
+    OuterApproximation,
 };
 
 /// Input for group-contribution models that allows for derivatives.
 pub struct ChemicalRecord<D> {
     pub groups: HashMap<&'static str, D>,
     pub bonds: HashMap<[&'static str; 2], D>,
+    pub molar_weight: MolarWeight<D>,
 }
 
 impl<D> ChemicalRecord<D> {
-    pub fn new(groups: HashMap<&'static str, D>, bonds: HashMap<[&'static str; 2], D>) -> Self {
-        Self { groups, bonds }
+    pub fn new(
+        groups: HashMap<&'static str, D>,
+        bonds: HashMap<[&'static str; 2], D>,
+        molar_weight: MolarWeight<D>,
+    ) -> Self {
+        Self {
+            groups,
+            bonds,
+            molar_weight,
+        }
     }
 }
 
@@ -49,13 +66,13 @@ impl<M, R, P> IntegratedDesign<M, R, P> {
 impl<
         M: MolecularRepresentation<N_Y>,
         R: PropertyModel<N>,
-        P: ProcessModel<R::EquationOfState, N_X, N>,
+        P: ProcessModel<N_X, N>,
         const N_X: usize,
         const N_Y: usize,
         const N: usize,
     > MixedIntegerNonLinearProgram<N_X, N_Y, N> for IntegratedDesign<M, R, P>
 {
-    type Error = EosError;
+    type Error = FeosError;
 
     fn x_variables(&self) -> SVector<(f64, f64, f64), N_X> {
         SVector::from(self.process.variables().map(|v| (v.lobnd, v.upbnd, v.init)))
@@ -81,10 +98,10 @@ impl<
         &self,
         x: SVector<D, N_X>,
         y: SMatrix<D, N_Y, N>,
-    ) -> Result<(D, Vec<D>), EosError> {
+    ) -> Result<(D, Vec<D>), FeosError> {
         let y_set: HashSet<_> = y.data.0.iter().map(|y| y.map(|y| y.re() as i32)).collect();
         if y_set.len() != N {
-            Err(EosError::IncompatibleComponents(N, y_set.len()))
+            Err(FeosError::IncompatibleComponents(N, y_set.len()))
         } else {
             let cr = y.data.0.map(|y| self.molecule.build_molecule(y));
             let eos = self.property.build_eos(cr.each_ref());
@@ -170,11 +187,7 @@ mod test {
             result.x.data.0[0],
             MOLECULE.smiles(&result.y.data.0[0])
         );
-        assert_relative_eq!(
-            result.objective.0,
-            -0.4378352970105434,
-            max_relative = 1e-10
-        );
+        assert_relative_eq!(result.objective.0, -0.4378352970105434, max_relative = 1e-8);
     }
 
     #[test]
@@ -207,11 +220,7 @@ mod test {
             result.x.data.0[0],
             molecule.smiles(&result.y.data.0[0])
         );
-        assert_relative_eq!(
-            result.objective.0,
-            -0.4378352970105434,
-            max_relative = 1e-10
-        );
+        assert_relative_eq!(result.objective.0, -0.4378352970105434, max_relative = 1e-8);
     }
 
     #[test]

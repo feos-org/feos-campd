@@ -2,6 +2,7 @@ use super::{ChemicalRecord, MolecularRepresentation, SuperMolecule};
 use crate::GeneralConstraint;
 use good_lp::{constraint, Constraint, Expression, Variable};
 use num_dual::DualNum;
+use quantity::{Dimensionless, MolarWeight};
 use std::collections::HashMap;
 
 /// A combination of different molecule superstructures.
@@ -96,6 +97,7 @@ where
 
         let mut groups = HashMap::new();
         let mut bonds = HashMap::new();
+        let mut molar_weight = MolarWeight::new(D::from(0.0));
         for (m, c) in self.0.iter().zip(c) {
             let cr = m.build(y.to_vec());
             cr.groups
@@ -104,7 +106,8 @@ where
             cr.bonds
                 .into_iter()
                 .for_each(|(b, v)| *bonds.entry(b).or_insert(D::zero()) += v * c);
+            molar_weight += cr.molar_weight * Dimensionless::new(*c);
         }
-        ChemicalRecord { groups, bonds }
+        ChemicalRecord::new(groups, bonds, molar_weight)
     }
 }
